@@ -47,17 +47,32 @@ function rSum(t){
   );
 }
 
+function rAttention(t){
+  const el=document.getElementById('attention'),a=deriveAttention(t),h=deriveHealth(t),tk=t.tasks||[];
+  const tone=a.items.length?'border-amber-500/30 bg-amber-500/[0.05]':'border-emerald-500/20 bg-emerald-500/[0.035]';
+  const lead=a.items.length?'Needs attention':'No blockers detected';
+  const chips=[chip(h.w+' working','blue'),chip(a.running.length+' active tasks','green'),chip(a.blocked.length+' blocked',a.blocked.length?'amber':'muted'),chip(tk.filter(x=>x.status==='pending').length+' pending','muted')];
+  let html='<div class="rounded-lg border '+tone+' px-3 py-2 flex flex-col md:flex-row md:items-center gap-2 md:gap-4">';
+  html+='<div class="min-w-[180px]"><div class="text-[10px] uppercase tracking-[.16em] text-txt-500">Team attention</div><div class="text-[14px] font-semibold text-txt-100">'+lead+'</div></div>';
+  html+='<div class="flex flex-wrap gap-1.5">'+chips.join('')+'</div>';
+  if(a.items.length){html+='<div class="flex-1 grid gap-1 md:grid-cols-2">'+a.items.slice(0,4).map(x=>'<div class="text-[12px] text-txt-200 truncate">'+chip(E(x.kind),x.color)+' <span class="font-mono">'+E(x.label)+'</span> <span class="text-txt-400">'+E(x.detail)+'</span></div>').join('')+'</div>'}
+  else if(a.latest){html+='<div class="text-[12px] text-txt-400 truncate md:ml-auto">Latest: <span class="text-txt-200">'+E(a.latest.fromName)+'</span> '+relT(a.latest.timeCreated)+'</div>'}
+  html+='</div>';
+  patch(el,html);
+}
+
 function rAgents(t){
   const el=document.getElementById('agents'),mm=t.members||[];
   if(!mm.length){patch(el,'<div class="col-span-full text-center py-12"><div class="text-txt-400 text-sm mb-1">No agents yet</div><div class="text-txt-500 text-[11px]">Spawn teammates with <code class="px-1 py-0.5 bg-base-900 rounded font-mono text-[10px]">team_spawn</code></div></div>');return}
-  const n=Date.now(),msgs=t.messages||[],sorted=[...mm].sort((a,b)=>{const o={busy:0,ready:1,shutdown_requested:2,error:3,shutdown:4};return(o[a.status]??5)-(o[b.status]??5)});
+  const n=Date.now(),msgs=t.messages||[],sorted=[...mm].sort((a,b)=>rankAgent(a,b,t));
   const html=sorted.map((m,idx)=>{
-    const s=si(m.status),task=(t.tasks||[]).find(x=>x.assignee===m.name&&x.status==='in_progress'),msg=msgs.find(x=>x.fromName===m.name);
+    const s=si(m.status),task=activeTaskFor(m.name,t.tasks||[]),msg=lastMessageFor(m.name,msgs),blocked=blockedTaskFor(m.name,t.tasks||[]);
     const d=D(n-m.timeUpdated),mi=msg?relT(msg.timeCreated):'\\u2014';
     const tt=task?.content,tr=tt&&tt.length>90?tt.slice(0,90)+'\\u2026':tt;
+    const mp=msg?(msg.content.length>90?msg.content.slice(0,90)+'\\u2026':msg.content):'';
     const spark=deriveSparkline(m.name,msgs);
     const isSel=selCard===idx;
-    return '<div class="rounded-lg border '+s.c+' p-3 transition-all duration-300 cursor-pointer hover:border-base-600'+(s.dim?' opacity-50 hover:opacity-70':'')+(isSel?' card-sel':'')+'" data-card="'+E(m.name)+'" onclick="openDrawer(\\''+E(m.name)+'\\')">'+
+    return '<button type="button" class="text-left rounded-lg border '+s.c+' p-3 transition-all duration-300 cursor-pointer hover:border-base-600 focus-visible:border-blue-400'+(isSel?' card-sel':'')+'" data-card="'+E(m.name)+'" onclick="openDrawer(this.dataset.card)" onkeydown="if(event.key===\\'Enter\\'||event.key===\\' \\'){event.preventDefault();openDrawer(this.dataset.card)}">'+
       '<div class="flex items-center gap-2">'+
         '<span class="w-[8px] h-[8px] rounded-full '+s.d+(m.status==='busy'?' pulse':'')+' shrink-0"></span>'+
         '<span class="font-mono font-semibold text-[14px] truncate">'+E(m.name)+'</span>'+
@@ -66,11 +81,12 @@ function rAgents(t){
         '<span class="text-[10px] text-txt-500 ml-auto shrink-0">'+E(m.agent)+'</span>'+
         (m.model?chip(E(m.model),'muted'):'')+
       '</div>'+
-      (tr?'<div class="mt-2 text-[13px] text-txt-200 leading-snug truncate">'+E(tr)+'</div>':'')+
+      (tr?'<div class="mt-2 text-[13px] text-txt-200 leading-snug truncate">'+(blocked?'<span class="text-amber-400">Blocked: </span>':'Current task: ')+E(tr)+'</div>':'<div class="mt-2 text-[13px] text-txt-500 leading-snug">No active task</div>')+
+      (mp?'<div class="mt-1 text-[12px] text-txt-400 truncate">Latest: '+E(mp)+'</div>':'')+
       '<div class="mt-2 flex items-center gap-1.5 flex-wrap">'+
-        chip(d,'muted')+chip('msg '+mi,'muted')+
+        chip('status '+d,'muted')+chip('msg '+mi,'muted')+chip(E(m.executionStatus||m.status),m.status==='busy'?'blue':m.status==='error'?'red':'muted')+
         (m.worktreeBranch?chip(E(m.worktreeBranch),'muted'):'')+
-      '</div></div>';
+      '</div></button>';
   }).join('');
   patch(el,html);
 }
@@ -82,8 +98,8 @@ function openDrawer(name){
   var h='';
   // Header
   h+='<div class="flex items-center justify-between mb-4">';
-  h+='<div class="flex items-center gap-2"><span class="w-[10px] h-[10px] rounded-full '+s.d+(m.status==='busy'?' pulse':'')+'"></span><span class="font-mono font-semibold text-[16px]">'+E(m.name)+'</span><span class="text-[11px] px-2 py-[2px] rounded '+s.t+' bg-base-800/80">'+s.l+'</span></div>';
-  h+='<button onclick="closeDrawer()" class="text-txt-500 hover:text-txt-200 transition-colors p-1"><svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg></button>';
+  h+='<div class="flex items-center gap-2"><span class="w-[10px] h-[10px] rounded-full '+s.d+(m.status==='busy'?' pulse':'')+'"></span><h2 id="drawer-title" class="font-mono font-semibold text-[16px]">'+E(m.name)+'</h2><span class="text-[11px] px-2 py-[2px] rounded '+s.t+' bg-base-800/80">'+s.l+'</span></div>';
+  h+='<button id="drawer-close" aria-label="Close agent detail" onclick="closeDrawer()" class="text-txt-500 hover:text-txt-200 transition-colors p-1"><svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg></button>';
   h+='</div>';
   // Meta chips
   var meta=[];
@@ -130,13 +146,22 @@ function openDrawer(name){
       h+='</div></div>';
     });
   }
-  document.getElementById('drawer').innerHTML=h;
-  document.getElementById('drawer').classList.add('open');
+  var drawer=document.getElementById('drawer');
+  drawer.innerHTML=h;
+  drawer.classList.add('open');
+  drawer.setAttribute('aria-hidden','false');
+  drawer.inert=false;
+  setBackgroundInert(true);
+  drawer.focus();
   document.getElementById('drawer-bg').classList.add('open');
 }
 
 function closeDrawer(){
-  document.getElementById('drawer').classList.remove('open');
+  var drawer=document.getElementById('drawer');
+  drawer.classList.remove('open');
+  drawer.setAttribute('aria-hidden','true');
+  drawer.inert=true;
+  if(!modalOpen())setBackgroundInert(false);
   document.getElementById('drawer-bg').classList.remove('open');
 }
 
@@ -155,7 +180,8 @@ function rTasks(t){
       const icl=x.status==='completed'?'text-emerald-500':x.status==='in_progress'?'text-blue-400':'text-txt-500';
       const p=PR[x.priority]||PR.low,cn=x.content.length>55?x.content.slice(0,55)+'\\u2026':x.content;
       let dep='';
-      if(x.dependsOn){const parent=taskMap[x.dependsOn];dep='<div class="text-[10px] text-txt-500 mt-0.5">\\u2514\\u2192 '+(parent?E(parent.content.slice(0,30)):E(x.dependsOn))+'</div>'}
+      const depIds=Array.isArray(x.dependsOn)?x.dependsOn:(x.dependsOn?[String(x.dependsOn)]:[]);
+      if(depIds.length){const labels=depIds.map(id=>{const parent=taskMap[id];return parent?parent.content.slice(0,42):id}).join(', ');dep='<div class="text-[10px] text-txt-500 mt-0.5">blocked by: '+E(labels)+'</div>'}
       return '<div class="flex items-start gap-2 py-1.5 px-1 rounded hover:bg-base-800/40 transition-colors">'+
         '<span class="'+icl+' text-[11px] mt-[2px] shrink-0">'+ic+'</span>'+
         '<div class="flex-1 min-w-0"><div class="text-[13px] text-txt-200 truncate">'+E(cn)+'</div>'+
@@ -182,7 +208,7 @@ function rActivity(t){
   if(!msgs.length){patch(el,'<div class="text-txt-500 text-sm py-6 text-center">Waiting for agent messages...</div>');return}
   const sp=saveSc(el);
   const newCount=msgs.length,hasNew=newCount>prevMC&&prevMC>0;
-  let html='<div class="text-[11px] text-txt-300 font-semibold uppercase tracking-wider mb-3">Activity '+chip(msgs.length+' msgs','muted')+'</div>';
+  let html='<div class="flex items-center gap-2 mb-3"><span class="text-[11px] text-txt-300 font-semibold uppercase tracking-wider">Activity feed</span>'+chip(msgs.length+' msgs','muted')+'</div>';
   html+='<div class="max-h-[50vh] overflow-y-auto scroll space-y-2">';
   msgs.slice(0,30).forEach(function(m,mi){
     const isNew=hasNew&&mi<(newCount-prevMC);
@@ -195,7 +221,7 @@ function rActivity(t){
     const bubbleBg=isPeer?'bg-violet-500/[0.06] border-violet-500/15':isFromAgent?'bg-blue-500/[0.06] border-blue-500/15':'bg-base-800/40 border-base-700/30';
     const initial=m.fromName.charAt(0).toUpperCase();
     const avatarColor=m.fromName==='system'?'bg-amber-500/20 text-amber-400':isPeer?'bg-violet-500/20 text-violet-400':isFromAgent?'bg-blue-500/20 text-blue-400':'bg-emerald-500/20 text-emerald-400';
-    html+='<div class="'+align+(isNew?' hl':'')+' cursor-pointer" data-msg="'+E(m.id)+'" onclick="toggleMsg(\\''+E(m.id)+'\\')">';
+    html+='<div class="'+align+(isNew?' hl':'')+' cursor-pointer" role="button" tabindex="0" aria-expanded="'+(isExp?'true':'false')+'" data-msg="'+E(m.id)+'" onclick="toggleMsg(this.dataset.msg)" onkeydown="if(event.key===\\'Enter\\'||event.key===\\' \\'){event.preventDefault();toggleMsg(this.dataset.msg)}">';
     html+='<div class="flex items-start gap-2">';
     html+='<span class="w-5 h-5 rounded-full '+avatarColor+' flex items-center justify-center text-[9px] font-semibold shrink-0 mt-0.5">'+E(initial)+'</span>';
     html+='<div class="flex-1 min-w-0 rounded-xl border '+bubbleBg+' px-3 py-2">';

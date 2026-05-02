@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach } from "bun:test"
+import { describe, test, expect, beforeEach, afterEach } from "bun:test"
 import { setupDeps, insertTeam, insertMember } from "./helpers"
 import { executeTeamCreate } from "../src/tools/team-create"
 import { executeTeamSpawn } from "../src/tools/team-spawn"
@@ -46,9 +46,23 @@ function getTeamId(deps: Deps, name: string): string {
 
 describe("stress: config validation", () => {
   let tmpDir: string
+  let originalHome: string | undefined
+  let originalUserProfile: string | undefined
 
   beforeEach(() => {
+    originalHome = process.env.HOME
+    originalUserProfile = process.env.USERPROFILE
     tmpDir = mkdtempSync(path.join(os.tmpdir(), "ensemble-stress-"))
+    process.env.HOME = path.join(tmpDir, "home")
+    delete process.env.USERPROFILE
+  })
+
+  afterEach(() => {
+    rmSync(tmpDir, { recursive: true, force: true })
+    if (originalHome === undefined) delete process.env.HOME
+    else process.env.HOME = originalHome
+    if (originalUserProfile === undefined) delete process.env.USERPROFILE
+    else process.env.USERPROFILE = originalUserProfile
   })
 
   test("invalid types in config are ignored", () => {
@@ -67,7 +81,6 @@ describe("stress: config validation", () => {
     expect(config.rateLimitCapacity).toBe(DEFAULT_CONFIG.rateLimitCapacity)
     // Valid type is accepted
     expect(config.timeoutMs).toBe(42)
-    rmSync(tmpDir, { recursive: true, force: true })
   })
 
   test("negative numbers are accepted (user responsibility)", () => {
@@ -78,7 +91,6 @@ describe("stress: config validation", () => {
     }))
     const config = loadConfig(tmpDir)
     expect(config.stallThresholdMs).toBe(-1)
-    rmSync(tmpDir, { recursive: true, force: true })
   })
 })
 

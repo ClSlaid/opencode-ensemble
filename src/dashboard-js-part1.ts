@@ -70,6 +70,40 @@ function deriveHealth(t){
   return{w:mm.filter(m=>m.status==='busy').length,i:mm.filter(m=>m.status==='ready').length,e:mm.filter(m=>m.status==='error').length,d:mm.filter(m=>m.status==='shutdown'||m.status==='shutdown_requested').length,total:mm.length};
 }
 
+function lastMessageFor(name,msgs){return msgs.filter(m=>m.fromName===name||m.toName===name).sort((a,b)=>b.timeCreated-a.timeCreated)[0]||null}
+function activeTaskFor(name,tasks){return tasks.find(x=>x.assignee===name&&x.status==='in_progress')||tasks.find(x=>x.assignee===name&&x.status==='blocked')||null}
+function blockedTaskFor(name,tasks){return tasks.find(x=>x.assignee===name&&x.status==='blocked')||null}
+
+function rankAgent(a,b,t){
+  const tasks=t?.tasks||[],msgs=t?.messages||[];
+  const score=m=>{
+    const lm=lastMessageFor(m.name,msgs),bt=blockedTaskFor(m.name,tasks);
+    let s=0;
+    if(m.status==='error')s-=1000;
+    if(bt)s-=800;
+    if(m.status==='shutdown_requested')s-=650;
+    if(m.status==='busy')s-=500;
+    if(m.status==='ready'&&activeTaskFor(m.name,tasks))s-=350;
+    if(lm)s-=Math.max(0,200-Math.floor((Date.now()-lm.timeCreated)/60000));
+    if(m.status==='shutdown')s+=700;
+    return s;
+  };
+  const d=score(a)-score(b);return d||String(a.name).localeCompare(String(b.name));
+}
+
+function deriveAttention(t){
+  const tasks=t.tasks||[],msgs=t.messages||[];
+  const blocked=tasks.filter(x=>x.status==='blocked'),running=tasks.filter(x=>x.status==='in_progress');
+  const errored=(t.members||[]).filter(m=>m.status==='error');
+  const stopping=(t.members||[]).filter(m=>m.status==='shutdown_requested');
+  const latest=msgs[0]||null;
+  const items=[];
+  errored.forEach(m=>items.push({kind:'Agent error',label:m.name,detail:m.executionStatus||m.status,color:'red'}));
+  blocked.forEach(x=>items.push({kind:'Blocked task',label:x.assignee||'unassigned',detail:x.content,color:'amber'}));
+  stopping.forEach(m=>items.push({kind:'Stopping',label:m.name,detail:'shutdown requested',color:'amber'}));
+  return{items,running,latest,blocked,errored};
+}
+
 function deriveSparkline(name,msgs){
   const mine=msgs.filter(m=>m.fromName===name).map(m=>m.timeCreated).sort();
   if(mine.length<2)return '';

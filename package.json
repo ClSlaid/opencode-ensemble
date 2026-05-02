@@ -1,6 +1,6 @@
 {
   "name": "@hueyexe/opencode-ensemble",
-  "version": "0.13.1",
+  "version": "0.13.2",
   "description": "Agent teams for OpenCode — parallel agents with peer-to-peer communication, shared tasks, and coordinated execution",
   "module": "src/index.ts",
   "main": "dist/index.js",
@@ -23,7 +23,8 @@
     "dist",
     "src",
     "LICENSE",
-    "README.md"
+    "README.md",
+    "social-preview.png"
   ],
   "scripts": {
     "lint": "bunx biome lint src/",

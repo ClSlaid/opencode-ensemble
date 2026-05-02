@@ -135,6 +135,18 @@ describe("dashboard", () => {
 
       expect(body.teams).toHaveLength(2)
     })
+
+    test("returns task dependencies as readable id arrays", async () => {
+      insertTeam(db, "t1", "alpha", "lead-sess")
+      insertTask(db, "t1", "task-1", "Prepare dashboard contracts", "completed", "high")
+      insertTask(db, "t1", "task-2", "Run final verification", "blocked", "high", null, JSON.stringify(["task-1"]))
+
+      server = await startDashboard(db, port)
+      const res = await fetch(`http://localhost:${port}/api/state`)
+      const body = (await res.json()) as StateResponse
+
+      expect(body.teams[0]!.tasks[1]!.dependsOn).toEqual(["task-1"])
+    })
   })
 
   describe("GET /", () => {
@@ -145,6 +157,13 @@ describe("dashboard", () => {
       expect(res.headers.get("content-type")).toContain("text/html")
       const text = await res.text()
       expect(text).toContain("<html")
+      expect(text).toContain('id="attention"')
+      expect(text).toContain('aria-label="Team attention"')
+      expect(text).toContain('aria-label="Agent roster"')
+      expect(text).toContain('aria-label="Task board"')
+      expect(text).toContain('aria-label="Activity feed"')
+      expect(text).toContain('aria-label="Event timeline"')
+      expect(text).toContain('id="drawer-title"')
     })
   })
 

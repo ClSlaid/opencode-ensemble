@@ -6,13 +6,23 @@ import { loadConfig, DEFAULT_CONFIG } from "../src/config"
 
 describe("config", () => {
   let tmpDir: string
+  let originalHome: string | undefined
+  let originalUserProfile: string | undefined
 
   beforeEach(() => {
+    originalHome = process.env.HOME
+    originalUserProfile = process.env.USERPROFILE
     tmpDir = mkdtempSync(path.join(os.tmpdir(), "ensemble-config-"))
+    process.env.HOME = path.join(tmpDir, "home")
+    delete process.env.USERPROFILE
   })
 
   afterEach(() => {
     rmSync(tmpDir, { recursive: true, force: true })
+    if (originalHome === undefined) delete process.env.HOME
+    else process.env.HOME = originalHome
+    if (originalUserProfile === undefined) delete process.env.USERPROFILE
+    else process.env.USERPROFILE = originalUserProfile
     delete process.env.OPENCODE_ENSEMBLE_TIMEOUT
     delete process.env.OPENCODE_ENSEMBLE_RATE_LIMIT
     delete process.env.STALL_THRESHOLD_MS

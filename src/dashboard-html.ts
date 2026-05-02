@@ -10,7 +10,7 @@ export const DASHBOARD_HEAD = `<!DOCTYPE html>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
 <script src="https://cdn.tailwindcss.com"><\/script>
-<script>tailwind.config={theme:{extend:{colors:{base:{950:'#0c0e14',900:'#141822',850:'#1a1f2e',800:'#1e2433',700:'#2a3144',600:'#3a4358'},txt:{100:'#e2e8f0',200:'#c1c9d9',300:'#8892a8',400:'#5e6a82',500:'#4a5568'}},fontFamily:{sans:['Inter','system-ui','sans-serif'],mono:['JetBrains Mono','monospace']}}}}<\/script>
+<script>tailwind.config={theme:{extend:{colors:{base:{950:'#0c0e14',900:'#141822',850:'#1a1f2e',800:'#1e2433',700:'#2a3144',600:'#3a4358'},txt:{100:'#e2e8f0',200:'#c1c9d9',300:'#aab4c6',400:'#8a96aa',500:'#7b879b'}},fontFamily:{sans:['Inter','system-ui','sans-serif'],mono:['JetBrains Mono','monospace']}}}}<\/script>
 <style>
 @media(prefers-reduced-motion:no-preference){
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
@@ -22,8 +22,10 @@ export const DASHBOARD_HEAD = `<!DOCTYPE html>
 .hl{animation:hl 1.5s ease-out}
 .shimmer{background:linear-gradient(90deg,#22c55e 0%,#4ade80 50%,#22c55e 100%)!important;background-size:200% 100%;animation:shimmer 1.5s ease-in-out}
 }
+@media(prefers-reduced-motion:reduce){*,::before,::after{animation-duration:.01ms!important;animation-iteration-count:1!important;scroll-behavior:auto!important;transition-duration:.01ms!important}}
 .scroll::-webkit-scrollbar{width:5px}.scroll::-webkit-scrollbar-track{background:transparent}.scroll::-webkit-scrollbar-thumb{background:#2a3144;border-radius:3px}
 details summary::-webkit-details-marker{display:none}details summary{list-style:none}
+:focus-visible{outline:2px solid rgba(96,165,250,.85);outline-offset:2px}
 select{-webkit-appearance:none;appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%235e6a82' stroke-width='2.5'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 8px center;padding-right:22px}
 .xp{max-height:0;overflow:hidden;transition:max-height .3s ease-out}.xp-open{max-height:3000px;transition:max-height .5s ease-in}
 .card-sel{outline:2px solid rgba(59,130,246,.4);outline-offset:1px}
@@ -42,13 +44,13 @@ select{-webkit-appearance:none;appearance:none;background-image:url("data:image/
 </style>
 </head>
 <body class="bg-base-950 text-txt-100 min-h-screen antialiased font-sans">
-<header class="fixed top-0 inset-x-0 h-11 bg-base-950/95 backdrop-blur border-b border-base-800 flex items-center justify-between px-4 z-50">
-<div class="flex items-center gap-3">
+<header class="fixed top-0 inset-x-0 h-11 bg-base-950/95 backdrop-blur border-b border-base-800 flex items-center justify-between px-3 sm:px-4 z-50">
+<div class="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
 <span class="font-mono font-semibold text-[13px] tracking-[.08em] text-txt-200">ensemble</span>
 <span class="text-base-700">|</span>
-<select id="sel" class="bg-base-900 border border-base-700 rounded-md px-2 py-[3px] text-[11px] text-txt-200 font-mono outline-none cursor-pointer hover:border-base-600 transition-colors"></select>
+<select id="sel" class="bg-base-900 border border-base-700 rounded-md px-2 py-[3px] text-[11px] text-txt-200 font-mono outline-none cursor-pointer hover:border-base-600 transition-colors max-w-[180px] sm:max-w-[320px] min-w-0"></select>
 </div>
-<div class="flex items-center gap-4">
+<div class="flex items-center gap-2 sm:gap-4 shrink-0">
 <div id="hring" class="w-6 h-6 rounded-full" title="Team health"></div>
 <div class="flex items-center gap-2">
 <span id="clk" class="text-[11px] text-txt-400 font-mono"></span>
@@ -58,25 +60,28 @@ select{-webkit-appearance:none;appearance:none;background-image:url("data:image/
 </div>
 </div>
 </header>
-<div id="sum" class="fixed top-11 inset-x-0 h-8 bg-base-900/80 backdrop-blur border-b border-base-800/50 flex items-center px-4 gap-4 text-[11px] text-txt-300 z-40"></div>
+<div id="sum" class="fixed top-11 inset-x-0 h-8 bg-base-900/80 backdrop-blur border-b border-base-800/50 flex items-center px-3 sm:px-4 gap-3 sm:gap-4 text-[11px] text-txt-300 z-40 overflow-x-auto scroll whitespace-nowrap"></div>
 <main class="pt-[76px] px-4 pb-16">
 <div id="empty" class="hidden flex-col items-center justify-center h-[70vh] gap-3">
 <div class="w-12 h-12 rounded-full border-2 border-base-700 flex items-center justify-center mb-2"><svg class="w-5 h-5 text-txt-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 4.5v15m7.5-7.5h-15"/></svg></div>
 <div class="text-txt-400 text-sm">Waiting for a team</div>
 <div class="text-txt-500 text-[11px]">Run <code class="px-1.5 py-0.5 bg-base-900 rounded text-txt-300 font-mono text-[11px]">team_create</code> in OpenCode to get started</div>
 </div>
-<div id="content" class="hidden">
-<div id="agents" class="grid gap-2 mb-4" style="grid-template-columns:repeat(auto-fill,minmax(300px,1fr))"></div>
-<div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-<div id="tasks" class="bg-base-900 rounded-lg p-3 border border-base-800/50"></div>
-<div id="activity" class="bg-base-900 rounded-lg p-3 border border-base-800/50"></div>
+<div id="content" class="hidden max-w-[1600px] mx-auto">
+<section id="attention" aria-label="Team attention" class="mb-3"></section>
+<div class="grid grid-cols-1 xl:grid-cols-[minmax(360px,1.35fr)_minmax(320px,.8fr)] gap-4 items-start">
+<section aria-label="Agent roster"><div id="agents" class="grid gap-2" style="grid-template-columns:repeat(auto-fill,minmax(300px,1fr))"></div></section>
+<div class="grid grid-cols-1 gap-4">
+<section aria-label="Task board"><div id="tasks" class="bg-base-900 rounded-lg p-3 border border-base-800/50"></div></section>
+<section aria-label="Activity feed"><div id="activity" class="bg-base-900 rounded-lg p-3 border border-base-800/50"></div></section>
+</div>
 </div>
 </div>
 </main>
-<div id="tl" class="fixed bottom-0 inset-x-0 h-10 bg-base-900/90 backdrop-blur border-t border-base-800 px-4 flex items-center z-40 overflow-x-auto scroll hidden"></div>
-<div id="sco" onclick="this.classList.remove('show')">
+<div id="tl" aria-label="Event timeline" class="fixed bottom-0 inset-x-0 h-10 bg-base-900/90 backdrop-blur border-t border-base-800 px-4 flex items-center z-40 overflow-x-auto scroll hidden"></div>
+<div id="sco" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="shortcuts-title" tabindex="-1" onclick="closeShortcuts()">
 <div class="bg-base-900 border border-base-800 rounded-lg p-6 max-w-sm" onclick="event.stopPropagation()">
-<div class="text-txt-200 font-semibold text-sm mb-4">Keyboard Shortcuts</div>
+<div id="shortcuts-title" class="text-txt-200 font-semibold text-sm mb-4">Keyboard Shortcuts</div>
 <div class="grid grid-cols-2 gap-y-2 gap-x-6 text-[12px]">
 <div><kbd class="px-1.5 py-0.5 bg-base-800 rounded font-mono text-txt-300 text-[11px]">j</kbd> <span class="text-txt-400">Next agent</span></div>
 <div><kbd class="px-1.5 py-0.5 bg-base-800 rounded font-mono text-txt-300 text-[11px]">k</kbd> <span class="text-txt-400">Prev agent</span></div>
@@ -88,4 +93,4 @@ select{-webkit-appearance:none;appearance:none;background-image:url("data:image/
 </div>
 </div>
 <div id="drawer-bg" onclick="closeDrawer()"></div>
-<div id="drawer" class="scroll p-4"></div>`;
+<div id="drawer" class="scroll p-4" tabindex="-1" inert role="dialog" aria-modal="true" aria-labelledby="drawer-title" aria-hidden="true"><h2 id="drawer-title" class="sr-only">Agent detail</h2></div>`;

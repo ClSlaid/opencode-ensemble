@@ -7,6 +7,46 @@ agents running in parallel with peer-to-peer communication, shared task
 management, and coordinated execution. Built entirely on the public OpenCode
 plugin SDK (@opencode-ai/plugin) with zero internal dependencies.
 
+## Design Context
+
+### Users
+
+OpenCode Ensemble is for developers using OpenCode to coordinate multiple AI
+agents on implementation, research, review, and test work. The dashboard is
+primarily for live triage: quickly seeing which agents are working, idle,
+blocked, errored, or done, then drilling into the right agent, task, or message
+without losing context.
+
+### Brand Personality
+
+Focused, operational, and precise. The product should feel like a developer
+mission control surface: high-signal, technically credible, calm under pressure,
+and alive enough to make parallel work visible.
+
+### Aesthetic Direction
+
+Use a mission-control visual language: dark, disciplined, status-rich, and
+spatially clear. Favor crisp hierarchy, meaningful status color, compact but
+readable density, and purposeful motion for live updates. Avoid generic AI
+dashboard tropes: decorative glow, arbitrary glassmorphism, identical metric
+cards, gradient-text hero treatments, and ornamental charts that do not support
+triage.
+
+### Design Principles
+
+1. Prioritize live triage over decoration: every region should answer who needs
+   attention, what changed, and what the lead can inspect next.
+2. Preserve developer context: keep agents, tasks, activity, and timeline
+   connected instead of scattering related signals across unrelated cards.
+3. Use status redundantly: pair color with text, shape, grouping, and accessible
+   state labels so status is understandable without relying on color alone.
+4. Support both first glance and deep inspection: show a clear overview first,
+   then reveal prompts, messages, dependencies, branches, and timing in focused
+   detail views.
+5. Keep the interface fast and resilient: keyboard navigation, visible focus,
+   responsive layout, reduced-motion support, and empty/error/loading states are
+   baseline requirements.
+
 ## Architecture
 
 ### Plugin SDK Constraint

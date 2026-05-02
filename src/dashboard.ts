@@ -58,6 +58,21 @@ function jsonResponse(data: unknown, status = 200): Response {
   })
 }
 
+function parseDependsOn(value: string | null): string[] {
+  if (!value) return []
+
+  try {
+    const parsed: unknown = JSON.parse(value)
+
+    if (Array.isArray(parsed)) return parsed.filter((item): item is string => typeof item === "string")
+    if (typeof parsed === "string") return [parsed]
+  } catch {
+    return [value]
+  }
+
+  return []
+}
+
 function buildState(db: Database): { teams: unknown[] } {
   const teams = db.query("SELECT id, name, status, lead_agent, time_created, time_updated FROM team ORDER BY time_created DESC").all() as TeamRow[]
   const memberStmt = db.query("SELECT name, agent, status, execution_status, worktree_branch, prompt, model, plan_approval, time_created, time_updated FROM team_member WHERE team_id = ?")
@@ -90,7 +105,7 @@ function buildState(db: Database): { teams: unknown[] } {
         status: tk.status,
         priority: tk.priority,
         assignee: tk.assignee,
-        dependsOn: tk.depends_on,
+        dependsOn: parseDependsOn(tk.depends_on),
         timeCreated: tk.time_created,
         timeUpdated: tk.time_updated,
       })),
