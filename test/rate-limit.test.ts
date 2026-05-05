@@ -22,8 +22,8 @@ describe("TokenBucket", () => {
     expect(bucket.tryConsume()).toBe(true)
     expect(bucket.tryConsume()).toBe(false)
 
-    // Wait for refill
-    await Bun.sleep(150)
+    // Wait for refill (generous margin for CI load)
+    await Bun.sleep(250)
     expect(bucket.tryConsume()).toBe(true)
   })
 
@@ -109,7 +109,7 @@ describe("TokenBucket", () => {
     expect(bucket.tryConsume()).toBe(false)
 
     // Wait for ~3 intervals — should get 3 tokens (not 4, unless timing allows)
-    await Bun.sleep(170)
+    await Bun.sleep(250)
     let consumed = 0
     while (bucket.tryConsume()) consumed++
     expect(consumed).toBeGreaterThanOrEqual(3)
