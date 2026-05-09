@@ -6,7 +6,7 @@
 
 [![npm version](https://img.shields.io/npm/v/@hueyexe/opencode-ensemble.svg)](https://www.npmjs.com/package/@hueyexe/opencode-ensemble)
 [![npm downloads](https://img.shields.io/npm/dm/@hueyexe/opencode-ensemble.svg)](https://www.npmjs.com/package/@hueyexe/opencode-ensemble)
-[![tests](https://img.shields.io/badge/tests-560%20passing-brightgreen.svg)]()
+[![tests](https://img.shields.io/badge/tests-561%20passing-brightgreen.svg)]()
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-blue.svg)]()
 [![OpenCode SDK](https://img.shields.io/badge/deps-OpenCode%20SDK%20only-blue.svg)]()
 [![license](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
@@ -29,79 +29,114 @@ Add to your `opencode.json`, restart OpenCode, and ask it to do something that b
 
 You ask the agent to do something complex. It creates a team, spawns teammates, and they work in parallel. Each teammate runs in its own OpenCode session with a fresh context window.
 
-A real interaction:
+A realistic development-team interaction:
 
 ```
-You: "Add input validation to all API endpoints and write tests for each one."
+You: "Fix checkout idempotency so duplicate Stripe webhooks cannot create
+duplicate orders. Add regression tests and review the final diff for risk."
 
 The lead agent:
-1. Creates a team called "validation"
-2. Adds tasks to the shared board, one per endpoint
-3. Spawns 3 teammates:
-   - alice: validate user endpoints (POST /users, PUT /users/:id)
-   - bob: validate order endpoints (POST /orders, PUT /orders/:id)
-   - carol: write integration tests for all validated endpoints
-4. carol's tasks depend on alice and bob finishing first
+1. Creates a team called "checkout-idempotency".
+2. Adds independent tasks first and records the generated task IDs.
+3. Adds dependent QA and review tasks with `depends_on` using real returned IDs.
+4. Spawns a small team with explicit roles:
+   - scout: explore agent, worktree disabled, model openai/gpt-5.3-codex-spark
+   - api-dev: build agent, own worktree, model anthropic/claude-opus-4-7, plan_approval: true
+   - qa: build agent, own worktree, model anthropic/claude-sonnet-4-6
+   - reviewer: explore agent, worktree disabled, model openai/gpt-5.3-codex-spark
 ```
 
-Alice and bob work simultaneously. You see toast notifications as they progress:
+The lead uses the task board to make sequencing visible. Record the returned task IDs before creating dependent tasks:
 
-```
-[toast] Teammate alice spawned (build)
-[toast] Teammate bob spawned (build)
-[toast] Teammate carol spawned (build)
-```
+```ts
+team_tasks_add({
+  tasks: [
+    { content: "Map checkout webhook flow and identify idempotency risks", priority: "high" },
+    { content: "Implement duplicate-webhook idempotency guard", priority: "high" },
+  ],
+})
+// -> Added 2 tasks: task_abc123, task_def456
 
-Teammates talk to each other and to the lead:
+team_tasks_add({
+  tasks: [
+    { content: "Add regression tests for duplicate webhook delivery", priority: "high", depends_on: ["task_def456"] },
+  ],
+})
+// -> Added 1 task: task_ghi789
 
-```
-alice -> lead: "User validation done. Added zod schemas to POST /users and PUT /users/:id."
-bob -> lead: "Order validation done. Found an edge case in PUT /orders/:id, negative quantities were allowed."
-bob -> alice: "Did you handle email format validation? I want to match the pattern for order contact emails."
-alice -> bob: "Yes, using z.string().email(). See src/validators/user.ts line 12."
-```
-
-When alice and bob finish, carol's blocked tasks unblock automatically. Carol starts writing tests using the validation schemas they created.
-
-Check on things at any time:
-
-```
-You: "How's the team doing?"
-
-Lead calls team_status:
-  Team: validation (you are the lead)
-  Members:
-    alice   [idle 2m, last msg: 1m ago]     agent: build  branch: ensemble-validation-alice
-    bob     [idle 1m, last msg: 30s ago]     agent: build  branch: ensemble-validation-bob
-    carol   [working 5m, last msg: 3m ago]   agent: build  branch: ensemble-validation-carol
-      task: Write integration tests for validated endpoints
-  Tasks: 5 total (3 completed, 1 in_progress, 1 pending)
+team_tasks_add({
+  tasks: [
+    { content: "Review final diff for order, payment, and retry risks", priority: "medium", depends_on: ["task_def456", "task_ghi789"] },
+  ],
+})
+// -> Added 1 task: task_jkl012
 ```
 
-Want to see what carol is doing? The lead can switch your view to her session:
+Then it spawns teammates one at a time:
+
+```ts
+team_spawn({
+  name: "scout",
+  agent: "explore",
+  worktree: false,
+  model: "openai/gpt-5.3-codex-spark",
+  claim_task: "task_abc123",
+  prompt: "Trace the checkout webhook flow. Report the files, data model, existing tests, and the smallest safe implementation plan. Do not edit files.",
+})
+
+team_spawn({
+  name: "api-dev",
+  agent: "build",
+  model: "anthropic/claude-opus-4-7",
+  plan_approval: true,
+  claim_task: "task_def456",
+  prompt: "After scout reports, implement the idempotency guard. Keep the change narrow. Commit your work and send a task-result message.",
+})
+```
+
+The same pattern assigns `qa` to regression tests and `reviewer` to final review. The reviewer stays read-only (`worktree: false`) so it can inspect merged changes without producing another branch.
+
+Teammates coordinate without the lead polling:
 
 ```
-You: "Show me what carol is working on."
-
-Lead calls team_view({ member: "carol" })
--> TUI switches to carol's session, showing her full chat log
--> Use the session picker (ctrl+p) to go back to the lead
+scout -> lead: "Checkout flow is src/webhooks/stripe.ts -> createOrderFromPayment(). Existing tests are in test/checkout-webhook.test.ts. Risk: retries race before order insert commits."
+api-dev -> lead: "Plan ready: add unique event_id insert before order creation, treat duplicate insert as success, add a transaction around order creation."
+lead -> api-dev: approves plan
+qa -> api-dev: "Which duplicate signal should tests assert: event_id conflict or existing order lookup?"
+api-dev -> qa: "Assert duplicate event_id returns success and creates one order. See src/webhooks/stripe.ts."
 ```
 
-When everything is done, the lead shuts down teammates and cleans up. Worktree branches are automatically merged into your working directory as unstaged changes for review:
+When work is done, the lead reviews and integrates deliberately:
 
 ```
-[toast] alice shut down
-[toast] bob shut down
-[toast] carol shut down
+team_results({ from: "api-dev" })
+team_shutdown({ member: "api-dev" })
+team_merge({ member: "api-dev" })
 
-Lead: "All validation and tests are complete. 5 endpoints validated,
-       12 test cases added. Team cleaned up.
-       Merged 3 branch(es) into working directory (unstaged).
-       Review changes with: git diff"
+team_results({ from: "qa" })
+team_shutdown({ member: "qa" })
+team_merge({ member: "qa" })
+
+team_spawn({ name: "reviewer", agent: "explore", worktree: false, claim_task: "task_jkl012", prompt: "Review the merged diff for correctness, missed tests, and risky behavior. Do not edit files." })
 ```
 
-All teammate changes are now in your working directory, unstaged, ready for you to review file-by-file with `git diff`.
+The lead runs the repository verification commands, summarizes the result, and only then cleans up the team. All merged teammate changes remain in your working directory as unstaged changes for review with `git diff`.
+
+## Agent Skill
+
+Install the companion skill to teach your AI how to form useful Ensemble teams, write better teammate prompts, choose models, and avoid common coordination failures:
+
+```bash
+npx skills@latest add hueyexe/opencode-ensemble --skill opencode-ensemble
+```
+
+The skill is useful when you want the agent to decide whether parallel work is appropriate, split work into independent slices, use `depends_on` correctly, or pick a safe mix of `explore` and `build` teammates.
+
+Good team shapes:
+
+- **Scout, builder, reviewer**: one read-only `explore` agent maps the code, one `build` agent changes it, one read-only `explore` agent reviews the diff.
+- **Parallel slices**: two or three `build` agents own independent files or vertical slices, then one reviewer checks the combined result.
+- **Risky change**: use `plan_approval: true` on the implementing teammate, then approve or reject the plan through `team_message` before edits begin.
 
 ## Dashboard
 
@@ -278,8 +313,8 @@ Control which AI models your agents use. By default, agents use whatever model O
 ```json
 {
   "modelsByAgent": {
-    "build": "anthropic/claude-opus-4-6",
-    "explore": "opencode/gpt-5-nano"
+    "build": "anthropic/claude-opus-4-7",
+    "explore": "openai/gpt-5.3-codex-spark"
   }
 }
 ```
@@ -287,7 +322,7 @@ Control which AI models your agents use. By default, agents use whatever model O
 **Rotate through a pool for diverse perspectives:**
 ```json
 {
-  "modelPool": ["anthropic/claude-opus-4-6", "anthropic/claude-sonnet-4-6", "openai/gpt-5.4"],
+  "modelPool": ["anthropic/claude-opus-4-7", "anthropic/claude-sonnet-4-6", "openai/gpt-5.4"],
   "modelAssignment": "rotate"
 }
 ```
@@ -296,7 +331,7 @@ Control which AI models your agents use. By default, agents use whatever model O
 ```json
 {
   "promptForModels": true,
-  "modelPool": ["anthropic/claude-opus-4-6", "opencode/big-pickle", "opencode/gpt-5-nano"]
+  "modelPool": ["anthropic/claude-opus-4-7", "opencode/big-pickle", "openai/gpt-5.3-codex-spark"]
 }
 ```
 
@@ -311,7 +346,7 @@ When `promptForModels` is true, the lead uses the question tool to ask which mod
 
 The lead can always override by passing `model` directly on `team_spawn`, regardless of config.
 
-Model IDs use the `provider/model` format from [models.dev](https://models.dev) (e.g. `anthropic/claude-opus-4-6`, `openai/gpt-5.4`). For OpenCode Zen models, use the `opencode/` prefix (e.g. `opencode/big-pickle`).
+Model IDs use the `provider/model` format from [models.dev](https://models.dev) (e.g. `anthropic/claude-opus-4-7`, `openai/gpt-5.4`). For OpenCode Zen models, use the `opencode/` prefix (e.g. `opencode/big-pickle`).
 
 ## Configuration
 
@@ -331,7 +366,7 @@ Configure via JSON files, environment variables, or both. Project config overrid
   "rateLimitCapacity": 10,
   "dashboardPort": 4747,
   "defaultModel": "anthropic/claude-sonnet-4-6",
-  "modelPool": ["anthropic/claude-opus-4-6", "anthropic/claude-sonnet-4-6", "openai/gpt-5.4"],
+  "modelPool": ["anthropic/claude-opus-4-7", "anthropic/claude-sonnet-4-6", "openai/gpt-5.4"],
   "modelsByAgent": {},
   "modelAssignment": "default",
   "promptForModels": false
@@ -353,7 +388,7 @@ All fields are optional. Missing fields use defaults.
 | `dashboardPort` | `4747` | Dashboard server port. `0` disables. |
 | `defaultModel` | `""` | Default model for all agents (e.g. `"anthropic/claude-sonnet-4-6"`). Empty = OpenCode's default. |
 | `modelPool` | `[]` | List of models for rotation/random assignment. |
-| `modelsByAgent` | `{}` | Map agent type to model (e.g. `{"build": "anthropic/claude-opus-4-6"}`). |
+| `modelsByAgent` | `{}` | Map agent type to model (e.g. `{"build": "anthropic/claude-opus-4-7"}`). |
 | `modelAssignment` | `"default"` | How to assign models: `"default"`, `"rotate"`, or `"random"`. |
 | `promptForModels` | `false` | Lead asks user about model preferences before spawning. |
 
@@ -412,7 +447,7 @@ Same coordination model (shared tasks, peer messaging, lead coordination) with s
 ```bash
 bun install
 bun run typecheck
-bun test             # 560 tests
+bun test             # 561 tests
 bun run build
 ```
 
