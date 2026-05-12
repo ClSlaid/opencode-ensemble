@@ -30,7 +30,7 @@ select{-webkit-appearance:none;appearance:none;background-image:url("data:image/
 .project-link[aria-current="true"]{color:#e2e8f0}
 .team-link[aria-current="true"]{color:#e2e8f0;border-left-color:#22c55e;background:rgba(34,197,94,.06)}
 #content.nav-collapsed{grid-template-columns:minmax(0,1fr)}
-#content.nav-collapsed #projects{display:none}
+#projects[hidden]{display:none!important}
 .xp{max-height:0;overflow:hidden;transition:max-height .3s ease-out}.xp-open{max-height:3000px;transition:max-height .5s ease-in}
 .card-sel{outline:2px solid rgba(59,130,246,.4);outline-offset:1px}
 .md pre{background:#1a1f2e;border:1px solid #1e2433;border-radius:6px;padding:8px 12px;overflow-x:auto;margin:6px 0;font-size:12px;line-height:1.5}
@@ -51,7 +51,7 @@ select{-webkit-appearance:none;appearance:none;background-image:url("data:image/
 <header class="fixed top-0 inset-x-0 h-11 bg-base-950/95 backdrop-blur border-b border-base-800 flex items-center justify-between px-3 sm:px-4 z-50">
 <div class="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
 <span class="font-mono font-semibold text-[13px] tracking-[.08em] text-txt-200">ensemble</span>
-<button id="nav-toggle" type="button" aria-label="Toggle project navigation" aria-expanded="true" class="text-[10px] text-txt-500 border border-base-800 rounded px-1.5 py-[2px] hover:text-txt-200 hover:border-base-700 transition-colors">projects</button>
+<button id="nav-toggle" type="button" aria-label="Toggle project navigation" aria-controls="projects" aria-expanded="true" class="text-[10px] text-txt-500 border border-base-800 rounded px-1.5 py-[2px] hover:text-txt-200 hover:border-base-700 transition-colors">hide projects</button>
 <span id="crumb" class="text-[11px] text-txt-500 font-mono truncate"></span>
 </div>
 <div class="flex items-center gap-2 sm:gap-4 shrink-0">

@@ -2,12 +2,21 @@
 export const DASHBOARD_JS_PART3 = `
 function toggleMsg(id){if(expMsgs.has(id))expMsgs.delete(id);else expMsgs.add(id);render()}
 
+function applyNavCollapse(){
+  const content=document.getElementById('content'),projects=document.getElementById('projects'),toggle=document.getElementById('nav-toggle');
+  content.classList.toggle('nav-collapsed',navCollapsed);
+  projects.hidden=navCollapsed;
+  projects.setAttribute('aria-hidden',String(navCollapsed));
+  toggle.setAttribute('aria-expanded',String(!navCollapsed));
+  toggle.textContent=navCollapsed?'show projects':'hide projects';
+}
+
 function render(){
   rSel();const t=cur();
   const empty=document.getElementById('empty'),content=document.getElementById('content');
   if(!t){empty.classList.remove('hidden');empty.classList.add('flex');content.classList.add('hidden');document.getElementById('tl').classList.add('hidden');return}
   empty.classList.add('hidden');empty.classList.remove('flex');content.classList.remove('hidden');
-  content.classList.toggle('nav-collapsed',navCollapsed);document.getElementById('nav-toggle').setAttribute('aria-expanded',String(!navCollapsed));
+  applyNavCollapse();
   const p=curProject();document.getElementById('crumb').textContent=p?' / '+(p.name||p.path||p.id)+' / '+t.name:'';
   rHealth(t);rSum(t);rAttention(t);rAgents(t);rTasks(t);rActivity(t);rTimeline(t);
 }
@@ -61,7 +70,7 @@ setInterval(function(){var t=cur();if(t)rClock(t);if(fails<3)conn(true)},1000);
 // Poll every 2.5s
 setInterval(poll,2500);
 
-document.getElementById('nav-toggle').addEventListener('click',function(){navCollapsed=!navCollapsed;render()});
+document.getElementById('nav-toggle').addEventListener('click',function(){navCollapsed=!navCollapsed;applyNavCollapse()});
 
 // Keyboard shortcuts
 document.addEventListener('keydown',function(e){
