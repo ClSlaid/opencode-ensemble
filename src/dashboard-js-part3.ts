@@ -7,8 +7,13 @@ function render(){
   const empty=document.getElementById('empty'),content=document.getElementById('content');
   if(!t){empty.classList.remove('hidden');empty.classList.add('flex');content.classList.add('hidden');document.getElementById('tl').classList.add('hidden');return}
   empty.classList.add('hidden');empty.classList.remove('flex');content.classList.remove('hidden');
+  content.classList.toggle('nav-collapsed',navCollapsed);document.getElementById('nav-toggle').setAttribute('aria-expanded',String(!navCollapsed));
+  const p=curProject();document.getElementById('crumb').textContent=p?' / '+(p.name||p.path||p.id)+' / '+t.name:'';
   rHealth(t);rSum(t);rAttention(t);rAgents(t);rTasks(t);rActivity(t);rTimeline(t);
 }
+
+function selectProject(id){selProjectId=id;const p=S?.projects?.find(p=>p.id===id);const t=(p?.teams||[]).filter(t=>t.status==='active').sort((a,b)=>b.timeUpdated-a.timeUpdated)[0]||(p?.teams||[])[0];if(t)selId=t.id;selCard=-1;render()}
+function selectTeam(id){selId=id;selCard=-1;render()}
 
 function conn(ok){
   document.getElementById('cd').className='w-[7px] h-[7px] rounded-full '+(ok?'bg-emerald-500 pulse':'bg-red-500');
@@ -56,6 +61,8 @@ setInterval(function(){var t=cur();if(t)rClock(t);if(fails<3)conn(true)},1000);
 // Poll every 2.5s
 setInterval(poll,2500);
 
+document.getElementById('nav-toggle').addEventListener('click',function(){navCollapsed=!navCollapsed;render()});
+
 // Keyboard shortcuts
 document.addEventListener('keydown',function(e){
   const shortcutsOpen=document.getElementById('sco').classList.contains('show');
@@ -79,9 +86,6 @@ document.addEventListener('keydown',function(e){
     if(idx<all.length){selId=all[idx].id;render()}
   }
 });
-
-// Select handler
-document.getElementById('sel').addEventListener('change',function(){selId=this.value;render()});
 
 // Initial poll
 poll();

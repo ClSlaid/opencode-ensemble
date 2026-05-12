@@ -24,6 +24,12 @@ describe("schema migrations", () => {
     expect(row).toBeTruthy()
   })
 
+  test("creates project table", () => {
+    applyMigrations(db)
+    const row = db.query("SELECT name FROM sqlite_master WHERE type='table' AND name='project'").get()
+    expect(row).toBeTruthy()
+  })
+
   test("creates team_member table", () => {
     applyMigrations(db)
     const row = db.query("SELECT name FROM sqlite_master WHERE type='table' AND name='team_member'").get()
@@ -52,8 +58,12 @@ describe("schema migrations", () => {
   test("can insert and query a team", () => {
     applyMigrations(db)
     db.run(
-      "INSERT INTO team (id, name, lead_session_id, status, delegate, time_created, time_updated) VALUES (?, ?, ?, ?, ?, ?, ?)",
-      ["t1", "my-team", "sess1", "active", 0, Date.now(), Date.now()]
+      "INSERT INTO project (id, name, path, status, time_created, time_updated) VALUES (?, ?, ?, 'active', ?, ?)",
+      ["/tmp/test-project", "test-project", "/tmp/test-project", Date.now(), Date.now()]
+    )
+    db.run(
+      "INSERT INTO team (id, name, project_id, lead_session_id, status, delegate, time_created, time_updated) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+      ["t1", "my-team", "/tmp/test-project", "sess1", "active", 0, Date.now(), Date.now()]
     )
     const row = db.query("SELECT * FROM team WHERE id = ?").get("t1") as Record<string, unknown>
     expect(row.name).toBe("my-team")
@@ -63,8 +73,12 @@ describe("schema migrations", () => {
   test("can insert and query a team_member", () => {
     applyMigrations(db)
     db.run(
-      "INSERT INTO team (id, name, lead_session_id, status, delegate, time_created, time_updated) VALUES (?, ?, ?, ?, ?, ?, ?)",
-      ["t1", "my-team", "sess1", "active", 0, Date.now(), Date.now()]
+      "INSERT INTO project (id, name, path, status, time_created, time_updated) VALUES (?, ?, ?, 'active', ?, ?)",
+      ["/tmp/test-project", "test-project", "/tmp/test-project", Date.now(), Date.now()]
+    )
+    db.run(
+      "INSERT INTO team (id, name, project_id, lead_session_id, status, delegate, time_created, time_updated) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+      ["t1", "my-team", "/tmp/test-project", "sess1", "active", 0, Date.now(), Date.now()]
     )
     db.run(
       "INSERT INTO team_member (team_id, name, session_id, agent, status, execution_status, time_created, time_updated) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
@@ -81,7 +95,8 @@ describe("schema migrations", () => {
     freshDb.exec("PRAGMA foreign_keys=ON")
     applyMigrations(freshDb)
 
-    freshDb.run("INSERT INTO team (id, name, lead_session_id, status, delegate, time_created, time_updated) VALUES ('t1', 'test', 'sess-1', 'active', 0, 1, 1)")
+    freshDb.run("INSERT INTO project (id, name, path, status, time_created, time_updated) VALUES ('/tmp/test-project', 'test-project', '/tmp/test-project', 'active', 1, 1)")
+    freshDb.run("INSERT INTO team (id, name, project_id, lead_session_id, status, delegate, time_created, time_updated) VALUES ('t1', 'test', '/tmp/test-project', 'sess-1', 'active', 0, 1, 1)")
     freshDb.run("INSERT INTO team_member (team_id, name, session_id, agent, status, execution_status, time_created, time_updated) VALUES ('t1', 'alice', 'sess-a', 'build', 'ready', 'idle', 1, 1)")
 
     const row = freshDb.query("SELECT workspace_id FROM team_member WHERE name = 'alice'").get() as { workspace_id: string | null }
@@ -93,8 +108,12 @@ describe("schema migrations", () => {
     applyMigrations(db)
     db.run("PRAGMA foreign_keys = ON")
     db.run(
-      "INSERT INTO team (id, name, lead_session_id, status, delegate, time_created, time_updated) VALUES (?, ?, ?, ?, ?, ?, ?)",
-      ["t1", "my-team", "sess1", "active", 0, Date.now(), Date.now()]
+      "INSERT INTO project (id, name, path, status, time_created, time_updated) VALUES (?, ?, ?, 'active', ?, ?)",
+      ["/tmp/test-project", "test-project", "/tmp/test-project", Date.now(), Date.now()]
+    )
+    db.run(
+      "INSERT INTO team (id, name, project_id, lead_session_id, status, delegate, time_created, time_updated) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+      ["t1", "my-team", "/tmp/test-project", "sess1", "active", 0, Date.now(), Date.now()]
     )
     db.run(
       "INSERT INTO team_member (team_id, name, session_id, agent, status, execution_status, time_created, time_updated) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",

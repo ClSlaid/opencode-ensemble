@@ -1,7 +1,7 @@
 import { describe, test, expect, beforeEach } from "bun:test"
 import { Database } from "bun:sqlite"
 import { applyMigrations } from "../src/schema"
-import { recoverStaleMembers, recoverUndeliveredMessages } from "../src/recovery"
+import { recoverStaleMembers, recoverUndeliveredMessages, recoverOrphanedBranches } from "../src/recovery"
 import type { PluginClient } from "../src/types"
 import { MemberRegistry } from "../src/state"
 import { sendMessage, broadcastMessage } from "../src/messaging"
@@ -150,6 +150,30 @@ describe("recoverStaleMembers", () => {
     const result = await recoverStaleMembers(db, client)
     expect(result.interrupted).toBe(0)
   })
+
+  test("only recovers stale members for the current project when provided", async () => {
+    insertTeam(db, "t1", "my-team", "lead-sess")
+    db.run("INSERT OR IGNORE INTO project (id, name, path, status, time_created, time_updated) VALUES (?, ?, ?, 'active', ?, ?)", ["/tmp/project-a", "project-a", "/tmp/project-a", Date.now(), Date.now()])
+    db.run("UPDATE team SET project_id = ? WHERE id = ?", ["/tmp/project-a", "t1"])
+    insertMember(db, "t1", "alice", "sess-1", "busy", "running")
+
+    insertTeam(db, "t2", "other-team", "other-lead")
+    db.run("INSERT OR IGNORE INTO project (id, name, path, status, time_created, time_updated) VALUES (?, ?, ?, 'active', ?, ?)", ["/tmp/project-b", "project-b", "/tmp/project-b", Date.now(), Date.now()])
+    db.run("UPDATE team SET project_id = ? WHERE id = ?", ["/tmp/project-b", "t2"])
+    insertMember(db, "t2", "bob", "sess-2", "busy", "running")
+
+    const result = await recoverStaleMembers(db, client, "/tmp/project-a")
+    expect(result.interrupted).toBe(1)
+
+    const alice = db.query("SELECT status FROM team_member WHERE name = ?").get("alice") as { status: string }
+    const bob = db.query("SELECT status FROM team_member WHERE name = ?").get("bob") as { status: string }
+    expect(alice.status).toBe("error")
+    expect(bob.status).toBe("busy")
+
+    const abortCalls = client.calls.filter(c => c.method === "session.abort")
+    expect(abortCalls).toHaveLength(1)
+    expect((abortCalls[0]!.args[0] as { sessionID: string }).sessionID).toBe("sess-1")
+  })
 })
 
 describe("recoverUndeliveredMessages", () => {
@@ -295,6 +319,53 @@ describe("recoverUndeliveredMessages", () => {
 
     const promptCalls = client.calls.filter(c => c.method === "session.promptAsync")
     expect(promptCalls).toHaveLength(1)
+  })
+})
+
+describe("recoverOrphanedBranches", () => {
+  let db: Database
+
+  beforeEach(() => {
+    db = setupDb()
+  })
+
+  test("only deletes preserved branches for archived teams in the current project", async () => {
+    insertTeam(db, "t1", "alpha", "lead-a")
+    db.run("INSERT OR IGNORE INTO project (id, name, path, status, time_created, time_updated) VALUES (?, ?, ?, 'active', ?, ?)", ["/tmp/project-a", "project-a", "/tmp/project-a", Date.now(), Date.now()])
+    db.run("UPDATE team SET status = 'archived', project_id = ? WHERE id = ?", ["/tmp/project-a", "t1"])
+
+    insertTeam(db, "t2", "beta", "lead-b")
+    db.run("INSERT OR IGNORE INTO project (id, name, path, status, time_created, time_updated) VALUES (?, ?, ?, 'active', ?, ?)", ["/tmp/project-b", "project-b", "/tmp/project-b", Date.now(), Date.now()])
+    db.run("UPDATE team SET status = 'archived', project_id = ? WHERE id = ?", ["/tmp/project-b", "t2"])
+
+    const originalSpawn = Bun.spawn
+    const deleted: string[] = []
+    Bun.spawn = ((cmd: string[]) => {
+      if (cmd[0] === "git" && cmd[1] === "branch" && cmd[2] === "--list") {
+        return {
+          stdout: new Response("ensemble/preserved/alpha/alice\nensemble/preserved/beta/bob\n").body!,
+          stderr: new Response("").body!,
+          exited: Promise.resolve(0),
+        }
+      }
+      if (cmd[0] === "git" && cmd[1] === "branch" && cmd[2] === "-D") {
+        deleted.push(cmd[3]!)
+        return {
+          stdout: new Response("").body!,
+          stderr: new Response("").body!,
+          exited: Promise.resolve(0),
+        }
+      }
+      return originalSpawn(cmd)
+    }) as typeof Bun.spawn
+
+    try {
+      const result = await recoverOrphanedBranches(db, "/tmp/project-a")
+      expect(result.removed).toBe(1)
+      expect(deleted).toEqual(["ensemble/preserved/alpha/alice"])
+    } finally {
+      Bun.spawn = originalSpawn
+    }
   })
 })
 

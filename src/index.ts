@@ -45,7 +45,7 @@ const DEFAULT_WATCHDOG_CHECK_MS = 60 * 1000 // 60 seconds
  * peer-to-peer communication, shared task management, and coordinated execution.
  */
 const plugin: Plugin = async (input) => {
-  // Initialize SQLite database in the global OpenCode config directory
+  // Initialize SQLite database in the global OpenCode config directory.
   const dbPath = getDbPath()
   mkdirSync(path.dirname(dbPath), { recursive: true })
   const db = createDb(dbPath)
@@ -81,8 +81,8 @@ const plugin: Plugin = async (input) => {
     if (recovery.interrupted > 0) {
       log(`init:recovery:interrupted=${recovery.interrupted}`)
       const members = db.query(
-        "SELECT tm.team_id, tm.name, tm.session_id FROM team_member tm JOIN team t ON tm.team_id = t.id WHERE t.status = 'active'"
-      ).all() as Array<{ team_id: string; name: string; session_id: string }>
+        "SELECT tm.team_id, tm.name, tm.session_id FROM team_member tm JOIN team t ON tm.team_id = t.id WHERE t.status = 'active' AND t.project_id = ?"
+      ).all(input.directory) as Array<{ team_id: string; name: string; session_id: string }>
       for (const m of members) {
         registry.register(m.team_id, m.name, m.session_id)
       }
@@ -360,6 +360,7 @@ const plugin: Plugin = async (input) => {
         description: "Create a new agent team. You become the team lead. Use this before spawning teammates.",
         args: {
           name: tool.schema.string().describe("Team name (lowercase alphanumeric with hyphens, 1-64 chars)"),
+          project_name: tool.schema.string().optional().describe("Project display name for first use of this working directory. If omitted, a short random name is generated."),
         },
         async execute(args, ctx) {
           const result = await executeTeamCreate(deps, args, ctx.sessionID)

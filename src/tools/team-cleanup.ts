@@ -13,6 +13,7 @@ type BranchExistsFn = (branch: string, cwd: string) => Promise<boolean>
 interface PurgeTarget {
   id: string
   name: string
+  project_id: string
   time_updated: number
 }
 
@@ -78,24 +79,30 @@ function resolvePurgeTargets(deps: ToolDeps, purge: string[]): PurgeTarget[] {
   }
 
   if (purge.includes("*")) {
-    return deps.db.query("SELECT id, name, time_updated FROM team WHERE status = 'archived' ORDER BY time_updated DESC, name ASC")
+    return deps.db.query("SELECT id, name, project_id, time_updated FROM team WHERE status = 'archived' ORDER BY time_updated DESC, name ASC")
       .all() as PurgeTarget[]
   }
 
   const uniqueNames = [...new Set(purge)]
   const rows = uniqueNames.map(name => ({
     name,
-    team: deps.db.query("SELECT id, name, status, time_updated FROM team WHERE name = ?").get(name) as { id: string; name: string; status: string; time_updated: number } | null,
+    teams: deps.db.query("SELECT id, name, project_id, status, time_updated FROM team WHERE name = ? ORDER BY project_id ASC, time_updated DESC")
+      .all(name) as Array<{ id: string; name: string; project_id: string; status: string; time_updated: number }>,
   }))
 
-  const missing = rows.filter(row => row.team === null).map(row => row.name)
+  const missing = rows.filter(row => row.teams.length === 0).map(row => row.name)
   if (missing.length > 0) throw new Error(`Team not found: ${missing.join(", ")}`)
 
-  const active = rows.filter(row => row.team?.status === "active").map(row => row.name)
+  const active = rows.filter(row => row.teams.some(team => team.status === "active")).map(row => row.name)
   if (active.length > 0) throw new Error(`Cannot purge active team: ${active.join(", ")}`)
 
+  const ambiguous = rows.filter(row => row.teams.length > 1).map(row => row.name)
+  if (ambiguous.length > 0) {
+    throw new Error(`Ambiguous archived team name across projects: ${ambiguous.join(", ")}. Use purge: ['*'] or clean up one project at a time.`)
+  }
+
   return rows
-    .map(row => row.team!)
+    .map(row => row.teams[0]!)
     .sort((a, b) => b.time_updated - a.time_updated || a.name.localeCompare(b.name))
 }
 

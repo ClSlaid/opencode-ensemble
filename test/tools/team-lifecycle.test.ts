@@ -618,6 +618,22 @@ describe("team_cleanup", () => {
     expect(deps.db.query("SELECT id FROM team WHERE id = 'old-1'").get()).not.toBeNull()
   })
 
+  test("purge rejects ambiguous archived team names across projects", async () => {
+    insertTeam(deps.db, "old-1", "old-team", "old-lead-1", "archived")
+    deps.db.run(
+      "INSERT OR IGNORE INTO project (id, name, path, status, time_created, time_updated) VALUES (?, ?, ?, 'active', ?, ?)",
+      ["/tmp/other-project", "other-project", "/tmp/other-project", Date.now(), Date.now()]
+    )
+    insertTeam(deps.db, "old-2", "other-old-team", "old-lead-2", "archived")
+    deps.db.run("UPDATE team SET name = ?, project_id = ? WHERE id = ?", ["old-team", "/tmp/other-project", "old-2"])
+
+    await expect(executeTeamCleanup(deps, { force: false, purge: ["old-team"] }, "main-sess", undefined, noopMerge, noopDelete, false))
+      .rejects.toThrow("Ambiguous archived team name")
+
+    expect(deps.db.query("SELECT id FROM team WHERE id = 'old-1'").get()).not.toBeNull()
+    expect(deps.db.query("SELECT id FROM team WHERE id = 'old-2'").get()).not.toBeNull()
+  })
+
   test("purge rejects active team members", async () => {
     insertMember(deps.db, "t1", "alice", "sess-alice", "ready", "idle")
     deps.registry.register("t1", "alice", "sess-alice")

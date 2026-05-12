@@ -23,6 +23,7 @@ describe("dashboard UI contract", () => {
   test("HTML shell exposes triage cockpit regions", () => {
     expect(DASHBOARD_HEAD).toContain('id="attention"')
     expect(DASHBOARD_HEAD).toContain('aria-label="Team attention"')
+    expect(DASHBOARD_HEAD).toContain('aria-label="Project navigation"')
     expect(DASHBOARD_HEAD).toContain('aria-label="Agent roster"')
     expect(DASHBOARD_HEAD).toContain('aria-label="Task board"')
     expect(DASHBOARD_HEAD).toContain('aria-label="Activity feed"')
@@ -34,8 +35,26 @@ describe("dashboard UI contract", () => {
   test("fixed dashboard chrome is constrained on narrow viewports", () => {
     expect(DASHBOARD_HEAD).toContain("px-3 sm:px-4")
     expect(DASHBOARD_HEAD).toContain("gap-2 sm:gap-3 min-w-0 flex-1")
-    expect(DASHBOARD_HEAD).toContain("max-w-[180px] sm:max-w-[320px] min-w-0")
     expect(DASHBOARD_HEAD).toContain("overflow-x-auto scroll whitespace-nowrap")
+  })
+
+  test("project navigation uses docs-style outline semantics", () => {
+    expect(DASHBOARD_HEAD).toContain('id="projects"')
+    expect(DASHBOARD_JS_PART2).toContain('<nav class="text-[12px]"')
+    expect(DASHBOARD_JS_PART2).toContain('class="project-link')
+    expect(DASHBOARD_JS_PART2).toContain('class="team-link')
+    expect(DASHBOARD_JS_PART2).toContain('border-l-2')
+    expect(DASHBOARD_JS_PART2).toContain("statusTitleProject")
+    expect(DASHBOARD_JS_PART2).toContain("statusTitleTeam")
+    expect(DASHBOARD_JS_PART3).toContain("function selectProject")
+    expect(DASHBOARD_JS_PART3).toContain("function selectTeam")
+  })
+
+  test("project navigation can collapse", () => {
+    expect(DASHBOARD_HEAD).toContain('id="nav-toggle"')
+    expect(DASHBOARD_HEAD).toContain("#content.nav-collapsed")
+    expect(DASHBOARD_JS_PART3).toContain("navCollapsed=!navCollapsed")
+    expect(DASHBOARD_JS_PART3).toContain("aria-expanded")
   })
 
   test("agent prioritization helpers are defined", () => {

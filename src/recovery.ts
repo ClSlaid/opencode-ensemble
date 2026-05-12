@@ -16,16 +16,17 @@ export async function recoverStaleMembers(db: Database, client?: PluginClient, c
   // Find stale members with branch info so we can preserve before aborting
   const stale = db.query(
     `SELECT tm.session_id, tm.worktree_branch, tm.name, tm.team_id, t.name as team_name
-     FROM team_member tm
-     JOIN team t ON tm.team_id = t.id
-     WHERE tm.status = 'busy' AND t.status = 'active'`
-  ).all() as Array<{ session_id: string; worktree_branch: string | null; name: string; team_id: string; team_name: string }>
+      FROM team_member tm
+      JOIN team t ON tm.team_id = t.id
+      WHERE tm.status = 'busy' AND t.status = 'active'
+        AND (? IS NULL OR t.project_id = ?)`
+  ).all(cwd ?? null, cwd ?? null) as Array<{ session_id: string; worktree_branch: string | null; name: string; team_id: string; team_name: string }>
 
   const result = db.run(
     `UPDATE team_member SET status = 'error', execution_status = 'idle', time_updated = ?
-     WHERE status = 'busy'
-       AND team_id IN (SELECT id FROM team WHERE status = 'active')`,
-    [Date.now()]
+      WHERE status = 'busy'
+        AND team_id IN (SELECT id FROM team WHERE status = 'active' AND (? IS NULL OR project_id = ?))`,
+    [Date.now(), cwd ?? null, cwd ?? null]
   )
 
   // Preserve branches then abort orphaned sessions
@@ -153,15 +154,17 @@ export async function recoverUndeliveredMessages(
 export async function recoverOrphanedBranches(db: Database, cwd: string): Promise<{ removed: number }> {
   let removed = 0
 
-  // Get archived team names that have NO active members
+  // Get archived team names for this project that have NO active members.
+  // Project scoping matters because preserved branch names only include team names.
   const archivedTeams = db.query(
     `SELECT t.name FROM team t
      WHERE t.status = 'archived'
+      AND t.project_id = ?
      AND NOT EXISTS (
-       SELECT 1 FROM team_member tm
-       WHERE tm.team_id = t.id AND tm.status NOT IN ('shutdown', 'error')
-     )`
-  ).all() as Array<{ name: string }>
+        SELECT 1 FROM team_member tm
+        WHERE tm.team_id = t.id AND tm.status NOT IN ('shutdown', 'error')
+      )`
+  ).all(cwd) as Array<{ name: string }>
 
   if (archivedTeams.length === 0) return { removed: 0 }
 
