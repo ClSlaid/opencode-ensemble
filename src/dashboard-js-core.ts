@@ -1,5 +1,5 @@
 /** Dashboard JS — utilities, data helpers, and state management. */
-export const DASHBOARD_JS_PART1 = `
+export const DASHBOARD_JS_CORE = `
 let S=null,selId=null,selProjectId=null,fails=0,pollT=Date.now(),prevMC=0,selCard=-1,navCollapsed=false;
 const expCards=new Set(),expMsgs=new Set();
 const E=s=>s?String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'):'';
@@ -64,6 +64,7 @@ function allTeams(){
   return{active,archived};
 }
 function allProjects(){return S?.projects?[...S.projects].sort((a,b)=>b.timeUpdated-a.timeUpdated):[]}
+function projectLabel(p){return p?(p.name||p.path||p.id):''}
 function curProject(){const ps=allProjects();if(!ps.length)return null;if(selProjectId){const p=ps.find(p=>p.id===selProjectId);if(p)return p}var t=cur();return t?ps.find(p=>p.id===t.projectId)||ps[0]:ps[0]}
 function cur(){const{active,archived}=allTeams(),all=[...active,...archived];if(!all.length)return null;if(selId){const t=all.find(t=>t.id===selId);if(t){selProjectId=t.projectId;return t}}const p=selProjectId&&S?.projects?.find(p=>p.id===selProjectId);const pt=p?[...(p.teams||[])].filter(t=>t.status==='active'):[ ];const t=pt.sort((a,b)=>b.timeUpdated-a.timeUpdated)[0]||active[0]||all[0];if(t){selId=t.id;selProjectId=t.projectId}return t}
 
@@ -74,7 +75,7 @@ function deriveHealth(t){
 
 function coarseTeamStatus(t){const h=deriveHealth(t),blocked=(t.tasks||[]).filter(x=>x.status==='blocked').length;if(h.e)return{label:'error',color:'red',dot:'bg-red-500'};if(blocked)return{label:'blocked',color:'amber',dot:'bg-amber-500'};if(h.w)return{label:'working',color:'blue',dot:'bg-blue-500'};if(h.i)return{label:'idle',color:'muted',dot:'bg-txt-500'};return{label:t.status==='active'?'empty':t.status,color:'muted',dot:'bg-base-600'}}
 function projectStatus(p){const teams=p.teams||[],counts={working:0,blocked:0,error:0,idle:0,done:0};teams.forEach(t=>{const s=coarseTeamStatus(t).label;if(s==='working')counts.working++;else if(s==='blocked')counts.blocked++;else if(s==='error')counts.error++;else if(s==='idle'||s==='empty')counts.idle++;else counts.done++});if(counts.error)return{label:'error',color:'red',dot:'bg-red-500',counts};if(counts.blocked)return{label:'blocked',color:'amber',dot:'bg-amber-500',counts};if(counts.working)return{label:'working',color:'blue',dot:'bg-blue-500',counts};return{label:'idle',color:'muted',dot:'bg-txt-500',counts}}
-function statusTitleProject(p){const s=projectStatus(p),teams=p.teams||[];return (p.name||p.path||p.id)+'\\nStatus: '+s.label+'\\nTeams: '+teams.length+'\\nWorking: '+s.counts.working+' · Blocked: '+s.counts.blocked+' · Error: '+s.counts.error+' · Idle: '+s.counts.idle}
+function statusTitleProject(p){const s=projectStatus(p),teams=p.teams||[];return projectLabel(p)+'\\nStatus: '+s.label+'\\nTeams: '+teams.length+'\\nWorking: '+s.counts.working+' · Blocked: '+s.counts.blocked+' · Error: '+s.counts.error+' · Idle: '+s.counts.idle}
 function statusTitleTeam(t){const h=deriveHealth(t),tasks=t.tasks||[],blocked=tasks.filter(x=>x.status==='blocked').length,active=tasks.filter(x=>x.status==='in_progress').length,pending=tasks.filter(x=>x.status==='pending').length,done=tasks.filter(x=>x.status==='completed').length;return t.name+'\\nStatus: '+coarseTeamStatus(t).label+'\\nAgents: '+h.total+' total, '+h.w+' working, '+h.i+' idle, '+h.e+' error\\nTasks: '+active+' active, '+blocked+' blocked, '+pending+' pending, '+done+' done'}
 
 function lastMessageFor(name,msgs){return msgs.filter(m=>m.fromName===name||m.toName===name).sort((a,b)=>b.timeCreated-a.timeCreated)[0]||null}

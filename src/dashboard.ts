@@ -1,12 +1,12 @@
 import type { Database } from "bun:sqlite"
 import { DASHBOARD_HEAD } from "./dashboard-html"
-import { DASHBOARD_JS_PART1 } from "./dashboard-js-part1"
-import { DASHBOARD_JS_PART2 } from "./dashboard-js-part2"
-import { DASHBOARD_JS_PART3 } from "./dashboard-js-part3"
+import { DASHBOARD_JS_CORE } from "./dashboard-js-core"
+import { DASHBOARD_JS_EVENTS } from "./dashboard-js-events"
+import { DASHBOARD_JS_RENDER } from "./dashboard-js-render"
 import { log } from "./log"
 
 /** Assemble the full dashboard HTML from parts. */
-const DASHBOARD_HTML = DASHBOARD_HEAD + "\n<script>" + DASHBOARD_JS_PART1 + DASHBOARD_JS_PART2 + DASHBOARD_JS_PART3 + "<\/script>\n</body></html>"
+const DASHBOARD_HTML = DASHBOARD_HEAD + "\n<script>" + DASHBOARD_JS_CORE + DASHBOARD_JS_RENDER + DASHBOARD_JS_EVENTS + "<\/script>\n</body></html>"
 
 interface TeamRow {
   id: string

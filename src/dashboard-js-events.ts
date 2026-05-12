@@ -1,5 +1,5 @@
 /** Dashboard JS — interaction handlers, keyboard, polling. */
-export const DASHBOARD_JS_PART3 = `
+export const DASHBOARD_JS_EVENTS = `
 function toggleMsg(id){if(expMsgs.has(id))expMsgs.delete(id);else expMsgs.add(id);render()}
 
 function applyNavCollapse(){
@@ -10,6 +10,8 @@ function applyNavCollapse(){
   rail.hidden=!navCollapsed;
   if(toggle)toggle.setAttribute('aria-expanded',String(!navCollapsed));
   expand.setAttribute('aria-expanded',String(!navCollapsed));
+  if(document.activeElement===toggle&&navCollapsed)expand.focus();
+  if(document.activeElement===expand&&!navCollapsed&&toggle)toggle.focus();
 }
 
 function render(){
@@ -18,7 +20,7 @@ function render(){
   if(!t){empty.classList.remove('hidden');empty.classList.add('flex');content.classList.add('hidden');document.getElementById('tl').classList.add('hidden');return}
   empty.classList.add('hidden');empty.classList.remove('flex');content.classList.remove('hidden');
   applyNavCollapse();
-  const p=curProject();document.getElementById('crumb').textContent=p?' / '+(p.name||p.path||p.id)+' / '+t.name:'';
+  const p=curProject();document.getElementById('crumb').textContent=p?' / '+projectLabel(p)+' / '+t.name:'';
   rHealth(t);rSum(t);rAttention(t);rAgents(t);rTasks(t);rActivity(t);rTimeline(t);
 }
 
