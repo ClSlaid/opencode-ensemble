@@ -3,12 +3,13 @@ export const DASHBOARD_JS_PART3 = `
 function toggleMsg(id){if(expMsgs.has(id))expMsgs.delete(id);else expMsgs.add(id);render()}
 
 function applyNavCollapse(){
-  const content=document.getElementById('content'),projects=document.getElementById('projects'),toggle=document.getElementById('nav-toggle');
+  const content=document.getElementById('content'),projects=document.getElementById('projects'),rail=document.getElementById('project-rail'),toggle=document.getElementById('nav-toggle'),expand=document.getElementById('nav-expand');
   content.classList.toggle('nav-collapsed',navCollapsed);
   projects.hidden=navCollapsed;
   projects.setAttribute('aria-hidden',String(navCollapsed));
-  toggle.setAttribute('aria-expanded',String(!navCollapsed));
-  toggle.textContent=navCollapsed?'show projects':'hide projects';
+  rail.hidden=!navCollapsed;
+  if(toggle)toggle.setAttribute('aria-expanded',String(!navCollapsed));
+  expand.setAttribute('aria-expanded',String(!navCollapsed));
 }
 
 function render(){
@@ -70,7 +71,12 @@ setInterval(function(){var t=cur();if(t)rClock(t);if(fails<3)conn(true)},1000);
 // Poll every 2.5s
 setInterval(poll,2500);
 
-document.getElementById('nav-toggle').addEventListener('click',function(){navCollapsed=!navCollapsed;applyNavCollapse()});
+document.addEventListener('click',function(e){
+  const id=e.target&&e.target.id;
+  if(id!=='nav-toggle'&&id!=='nav-expand')return;
+  navCollapsed=id==='nav-toggle';
+  applyNavCollapse();
+});
 
 // Keyboard shortcuts
 document.addEventListener('keydown',function(e){

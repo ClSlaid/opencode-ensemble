@@ -2,8 +2,9 @@
 export const DASHBOARD_JS_PART2 = `
 function rSel(){
   const el=document.getElementById('projects'),ps=allProjects(),c=cur(),cp=curProject();
-  if(!ps.length){patch(el,'<div class="text-center text-txt-500 text-[12px] py-6">No projects yet</div>');return}
-  let h='<nav class="text-[12px]" aria-label="Projects"><div class="text-[10px] uppercase tracking-[.18em] text-txt-500 mb-3">Projects</div><div class="space-y-4">';
+  const head='<div class="flex items-center justify-between gap-2 mb-3"><div class="text-[10px] uppercase tracking-[.18em] text-txt-500">Projects</div><button id="nav-toggle" type="button" aria-label="Hide project navigation" aria-controls="projects" aria-expanded="true" class="text-[10px] text-txt-500 border border-base-800 rounded px-1.5 py-[2px] hover:text-txt-200 hover:border-base-700 transition-colors">hide</button></div>';
+  if(!ps.length){patch(el,head+'<div class="text-center text-txt-500 text-[12px] py-6">No projects yet</div>');return}
+  let h='<nav class="text-[12px]" aria-label="Projects">'+head+'<div class="space-y-4">';
   ps.forEach(function(p){
     const teams=p.teams||[],active=teams.filter(t=>t.status==='active').length,sel=cp&&cp.id===p.id,pss=projectStatus(p);
     h+='<section><button type="button" aria-current="'+(sel?'true':'false')+'" title="'+E(statusTitleProject(p))+'" class="project-link group w-full text-left text-txt-300 hover:text-txt-100 transition-colors" data-project="'+E(p.id)+'" onclick="selectProject(this.dataset.project)">'+

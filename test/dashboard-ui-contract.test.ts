@@ -51,17 +51,20 @@ describe("dashboard UI contract", () => {
   })
 
   test("project navigation can collapse", () => {
-    expect(DASHBOARD_HEAD).toContain('id="nav-toggle"')
-    expect(DASHBOARD_HEAD).toContain('aria-controls="projects"')
-    expect(DASHBOARD_HEAD).toContain('hide projects')
+    expect(DASHBOARD_HEAD).not.toContain('<button id="nav-toggle"')
+    expect(DASHBOARD_HEAD).toContain('id="project-rail"')
+    expect(DASHBOARD_HEAD).toContain('id="nav-expand"')
+    expect(DASHBOARD_JS_PART2).toContain('id="nav-toggle"')
+    expect(DASHBOARD_JS_PART2).toContain('aria-label="Hide project navigation"')
     expect(DASHBOARD_HEAD).toContain("#content.nav-collapsed")
     expect(DASHBOARD_HEAD).toContain("#projects[hidden]")
+    expect(DASHBOARD_HEAD).toContain("#project-rail[hidden]")
     expect(DASHBOARD_JS_PART3).toContain("function applyNavCollapse")
-    expect(DASHBOARD_JS_PART3).toContain("navCollapsed=!navCollapsed")
+    expect(DASHBOARD_JS_PART3).toContain("id==='nav-toggle'")
     expect(DASHBOARD_JS_PART3).toContain("aria-expanded")
     expect(DASHBOARD_JS_PART3).toContain("projects.hidden=navCollapsed")
+    expect(DASHBOARD_JS_PART3).toContain("rail.hidden=!navCollapsed")
     expect(DASHBOARD_JS_PART3).toContain("aria-hidden")
-    expect(DASHBOARD_JS_PART3).toContain("show projects")
   })
 
   test("agent prioritization helpers are defined", () => {

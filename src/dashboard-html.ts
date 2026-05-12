@@ -29,8 +29,9 @@ details summary::-webkit-details-marker{display:none}details summary{list-style:
 select{-webkit-appearance:none;appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%235e6a82' stroke-width='2.5'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 8px center;padding-right:22px}
 .project-link[aria-current="true"]{color:#e2e8f0}
 .team-link[aria-current="true"]{color:#e2e8f0;border-left-color:#22c55e;background:rgba(34,197,94,.06)}
-#content.nav-collapsed{grid-template-columns:minmax(0,1fr)}
+#content.nav-collapsed{grid-template-columns:2rem minmax(0,1fr)}
 #projects[hidden]{display:none!important}
+#project-rail[hidden]{display:none!important}
 .xp{max-height:0;overflow:hidden;transition:max-height .3s ease-out}.xp-open{max-height:3000px;transition:max-height .5s ease-in}
 .card-sel{outline:2px solid rgba(59,130,246,.4);outline-offset:1px}
 .md pre{background:#1a1f2e;border:1px solid #1e2433;border-radius:6px;padding:8px 12px;overflow-x:auto;margin:6px 0;font-size:12px;line-height:1.5}
@@ -51,7 +52,6 @@ select{-webkit-appearance:none;appearance:none;background-image:url("data:image/
 <header class="fixed top-0 inset-x-0 h-11 bg-base-950/95 backdrop-blur border-b border-base-800 flex items-center justify-between px-3 sm:px-4 z-50">
 <div class="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
 <span class="font-mono font-semibold text-[13px] tracking-[.08em] text-txt-200">ensemble</span>
-<button id="nav-toggle" type="button" aria-label="Toggle project navigation" aria-controls="projects" aria-expanded="true" class="text-[10px] text-txt-500 border border-base-800 rounded px-1.5 py-[2px] hover:text-txt-200 hover:border-base-700 transition-colors">hide projects</button>
 <span id="crumb" class="text-[11px] text-txt-500 font-mono truncate"></span>
 </div>
 <div class="flex items-center gap-2 sm:gap-4 shrink-0">
@@ -72,6 +72,7 @@ select{-webkit-appearance:none;appearance:none;background-image:url("data:image/
 <div class="text-txt-500 text-[11px]">Run <code class="px-1.5 py-0.5 bg-base-900 rounded text-txt-300 font-mono text-[11px]">team_create</code> in OpenCode to get started</div>
 </div>
 <div id="content" class="hidden max-w-[1720px] mx-auto grid grid-cols-1 lg:grid-cols-[260px_minmax(0,1fr)] gap-4 items-start">
+<div id="project-rail" hidden class="lg:sticky lg:top-[88px]"><button id="nav-expand" type="button" aria-label="Show project navigation" aria-controls="projects" aria-expanded="false" class="h-8 w-8 rounded border border-base-800 text-txt-500 hover:text-txt-200 hover:border-base-700 transition-colors">&gt;</button></div>
 <aside id="projects" aria-label="Project navigation" class="bg-base-950/60 border-r border-base-800/70 pr-3 lg:sticky lg:top-[88px]"></aside>
 <div class="min-w-0">
 <section id="attention" aria-label="Team attention" class="mb-3"></section>
