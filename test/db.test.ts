@@ -55,6 +55,77 @@ describe("schema migrations", () => {
     expect(version.user_version).toBe(MIGRATIONS.length)
   })
 
+  test("rejects databases from newer plugin versions", () => {
+    db.exec(`PRAGMA user_version = ${MIGRATIONS.length + 1}`)
+    expect(() => applyMigrations(db)).toThrow("newer than this plugin supports")
+  })
+
+  test("rolls back a failed migration without leaving half-migrated tables", () => {
+    db.exec(`
+      CREATE TABLE team (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL UNIQUE,
+        lead_session_id TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'active',
+        delegate INTEGER NOT NULL DEFAULT 0,
+        time_created INTEGER NOT NULL,
+        time_updated INTEGER NOT NULL,
+        lead_agent TEXT
+      );
+      INSERT INTO team (id, name, lead_session_id, status, delegate, time_created, time_updated, lead_agent)
+        VALUES ('t1', 'old-team', 'sess-1', 'active', 0, 1, 1, NULL);
+      PRAGMA user_version = 7;
+    `)
+
+    expect(() => applyMigrations(db)).toThrow()
+
+    const version = db.query("PRAGMA user_version").get() as { user_version: number }
+    expect(version.user_version).toBe(7)
+    expect(db.query("SELECT name FROM sqlite_master WHERE type='table' AND name='team'").get()).toBeTruthy()
+    expect(db.query("SELECT name FROM sqlite_master WHERE type='table' AND name='team_old_m8'").get()).toBeNull()
+    expect(db.query("SELECT name FROM sqlite_master WHERE type='table' AND name='project'").get()).toBeNull()
+    const row = db.query("SELECT name FROM team WHERE id = 't1'").get() as { name: string }
+    expect(row.name).toBe("old-team")
+  })
+
+  test("upgrades a version 7 database to the current project schema", () => {
+    for (let i = 0; i < 7; i++) {
+      db.exec(MIGRATIONS[i]!)
+      db.exec(`PRAGMA user_version = ${i + 1}`)
+    }
+    db.run(
+      "INSERT INTO team (id, name, lead_session_id, status, delegate, time_created, time_updated, lead_agent) VALUES (?, ?, ?, 'active', 0, ?, ?, ?)",
+      ["t1", "legacy-team", "sess-1", 1, 2, "build"]
+    )
+    db.run(
+      "INSERT INTO team_member (team_id, name, session_id, agent, status, execution_status, prompt, time_created, time_updated, worktree_dir, worktree_branch, plan_approval, workspace_id, reported_to_lead) VALUES (?, ?, ?, ?, 'ready', 'idle', ?, ?, ?, ?, ?, 'none', ?, 0)",
+      ["t1", "alice", "sess-a", "build", "legacy prompt", 3, 4, "/tmp/wt", "ensemble-legacy-team-alice", "ws-1"]
+    )
+    db.run(
+      "INSERT INTO team_task (id, team_id, content, status, priority, time_created, time_updated) VALUES (?, ?, ?, 'pending', 'medium', ?, ?)",
+      ["task-1", "t1", "legacy task", 5, 6]
+    )
+    db.run(
+      "INSERT INTO team_message (id, team_id, from_name, to_name, content, delivered, time_created, read) VALUES (?, ?, ?, ?, ?, 1, ?, 0)",
+      ["msg-1", "t1", "alice", "lead", "legacy message", 7]
+    )
+
+    applyMigrations(db)
+
+    const version = db.query("PRAGMA user_version").get() as { user_version: number }
+    expect(version.user_version).toBe(MIGRATIONS.length)
+    const project = db.query("SELECT id, name FROM project WHERE id = 'default'").get() as { id: string; name: string }
+    expect(project.name).toBe("Default Project")
+    const team = db.query("SELECT name, project_id, lead_agent FROM team WHERE id = 't1'").get() as { name: string; project_id: string; lead_agent: string }
+    expect(team).toEqual({ name: "legacy-team", project_id: "default", lead_agent: "build" })
+    const member = db.query("SELECT prompt, workspace_id, reported_to_lead FROM team_member WHERE team_id = 't1' AND name = 'alice'").get() as { prompt: string; workspace_id: string; reported_to_lead: number }
+    expect(member).toEqual({ prompt: "legacy prompt", workspace_id: "ws-1", reported_to_lead: 0 })
+    const task = db.query("SELECT content FROM team_task WHERE id = 'task-1'").get() as { content: string }
+    expect(task.content).toBe("legacy task")
+    const message = db.query("SELECT content, read FROM team_message WHERE id = 'msg-1'").get() as { content: string; read: number }
+    expect(message).toEqual({ content: "legacy message", read: 0 })
+  })
+
   test("can insert and query a team", () => {
     applyMigrations(db)
     db.run(

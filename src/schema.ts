@@ -195,9 +195,25 @@ export const MIGRATIONS: string[] = [
 export function applyMigrations(db: Database): void {
   const { user_version: current } = db.query("PRAGMA user_version").get() as { user_version: number }
 
+  if (current > MIGRATIONS.length) {
+    throw new Error(`Database schema version ${current} is newer than this plugin supports (${MIGRATIONS.length}). Upgrade opencode-ensemble before continuing.`)
+  }
+
   for (let i = current; i < MIGRATIONS.length; i++) {
     const migration = MIGRATIONS[i]
-    if (migration) db.exec(migration)
-    db.exec(`PRAGMA user_version = ${i + 1}`)
+    const { foreign_keys: foreignKeys } = db.query("PRAGMA foreign_keys").get() as { foreign_keys: number }
+
+    db.exec("PRAGMA foreign_keys = OFF")
+    db.exec("BEGIN IMMEDIATE")
+    try {
+      if (migration) db.exec(migration)
+      db.exec(`PRAGMA user_version = ${i + 1}`)
+      db.exec("COMMIT")
+    } catch (err) {
+      db.exec("ROLLBACK")
+      throw err
+    } finally {
+      db.exec(`PRAGMA foreign_keys = ${foreignKeys ? "ON" : "OFF"}`)
+    }
   }
 }
