@@ -209,8 +209,9 @@ const plugin: Plugin = async (input) => {
               "SELECT worktree_branch, name, team_id FROM team_member WHERE session_id = ?"
             ).get(sessionID) as { worktree_branch: string | null; name: string; team_id: string } | null
             if (member?.worktree_branch && !member.worktree_branch.startsWith("ensemble/preserved/")) {
-              const { preserveBranch: preserve, preservedBranchName: branchName } = await import("./tools/merge-helper")
-              const safeBranch = branchName(member.team_id, member.name)
+              const { getTeamResourceParts, preserveBranch: preserve, preservedBranchName: branchName } = await import("./tools/merge-helper")
+              const resource = getTeamResourceParts(deps.db, member.team_id)
+              const safeBranch = branchName(resource.projectName, resource.teamName, resource.teamId, member.name)
               const ok = await preserve(member.worktree_branch, safeBranch, deps.directory)
               if (ok) {
                 deps.db.run("UPDATE team_member SET worktree_branch = ? WHERE team_id = ? AND name = ?",

@@ -5,7 +5,7 @@ import { executeTeamMerge } from "../src/tools/team-merge"
 import { executeTeamCleanup } from "../src/tools/team-cleanup"
 import { executeTeamSpawn } from "../src/tools/team-spawn"
 import { executeTeamCreate } from "../src/tools/team-create"
-import { preservedBranchName } from "../src/tools/merge-helper"
+import { getTeamResourceParts, preservedBranchName } from "../src/tools/merge-helper"
 import type { MergeBranchFn, DeleteBranchFn, PreserveBranchFn, OverlapCheckFn } from "../src/tools/merge-helper"
 import { spawnFailures } from "../src/tools/team-spawn"
 
@@ -19,6 +19,11 @@ const failMerge: MergeBranchFn = async () => ({ ok: false, error: "CONFLICT in f
 
 function teamId(deps: Deps, name: string): string {
   return (deps.db.query("SELECT id FROM team WHERE name = ?").get(name) as { id: string }).id
+}
+
+function preservedFor(deps: Deps, teamName: string, memberName: string): string {
+  const resource = getTeamResourceParts(deps.db, teamId(deps, teamName))
+  return preservedBranchName(resource.projectName, resource.teamName, resource.teamId, memberName)
 }
 
 // ─── Branch preservation on shutdown ───
@@ -58,13 +63,13 @@ describe("branch preservation", () => {
     // Preserve was called with the original branch
     expect(preserveCalled).toBe(true)
     expect(preserveSource).toBe(originalBranch)
-    const id = teamId(deps, "preserve-test")
-    expect(preserveTarget).toBe(preservedBranchName(id, "alice"))
+    const preserved = preservedFor(deps, "preserve-test", "alice")
+    expect(preserveTarget).toBe(preserved)
 
     // DB was updated to the preserved branch name
     const after = deps.db.query("SELECT worktree_branch, status FROM team_member WHERE name = 'alice'")
       .get() as { worktree_branch: string | null; status: string }
-    expect(after.worktree_branch).toBe(preservedBranchName(id, "alice"))
+    expect(after.worktree_branch).toBe(preserved)
     expect(after.status).toBe("shutdown")
   })
 
@@ -138,8 +143,8 @@ describe("branch preservation", () => {
   })
 
   test("preservedBranchName generates correct format", () => {
-    expect(preservedBranchName("my-team", "alice")).toBe("ensemble/preserved/my-team/alice")
-    expect(preservedBranchName("refactor", "bob")).toBe("ensemble/preserved/refactor/bob")
+    expect(preservedBranchName("silver-river", "my-team", "team_abc123", "alice")).toBe("ensemble/preserved/silver-river/my-team#abc123/alice")
+    expect(preservedBranchName("copper-orbit", "refactor", "t1", "bob")).toBe("ensemble/preserved/copper-orbit/refactor#t1/bob")
   })
 })
 
@@ -189,7 +194,7 @@ describe("team_merge", () => {
     }
 
     await executeTeamMerge(deps, { member: "alice" }, lead, noopMerge, trackDelete, noopOverlap)
-    expect(deletedBranch).toBe(preservedBranchName(teamId(deps, "del-branch"), "alice"))
+    expect(deletedBranch).toBe(preservedFor(deps, "del-branch", "alice"))
   })
 
   test("rejects merge for active (non-shutdown) member", async () => {
@@ -333,7 +338,7 @@ describe("cleanup safety net for unmerged branches", () => {
     const result = await executeTeamCleanup(deps, { force: false }, lead, undefined, trackMerge, noopDelete, true, noopOverlap)
     expect(result).toContain("Safety-net merged")
     expect(mergedBranches).toHaveLength(1)
-    expect(mergedBranches[0]).toBe(preservedBranchName(teamId(deps, "safety-net"), "alice"))
+    expect(mergedBranches[0]).toBe(preservedFor(deps, "safety-net", "alice"))
   })
 
   test("cleanup skips already-merged members", async () => {
@@ -400,7 +405,7 @@ describe("cleanup safety net for unmerged branches", () => {
     const result = await executeTeamCleanup(deps, { force: false }, lead, undefined, trackMerge, noopDelete, true, noopOverlap)
     expect(result).toContain("Safety-net merged 1 unmerged branch")
     expect(mergedBranches).toHaveLength(1)
-    expect(mergedBranches[0]).toBe(preservedBranchName(teamId(deps, "mixed-merge"), "bob"))
+    expect(mergedBranches[0]).toBe(preservedFor(deps, "mixed-merge", "bob"))
   })
 
   test("cleanup safety-net reports overlap warnings", async () => {
@@ -442,9 +447,8 @@ describe("full merge lifecycle", () => {
       .get() as { worktree_branch: string }).worktree_branch
     const bobBranch = (deps.db.query("SELECT worktree_branch FROM team_member WHERE name = 'bob'")
       .get() as { worktree_branch: string }).worktree_branch
-    const id = teamId(deps, "lifecycle")
-    expect(aliceBranch).toBe(preservedBranchName(id, "alice"))
-    expect(bobBranch).toBe(preservedBranchName(id, "bob"))
+    expect(aliceBranch).toBe(preservedFor(deps, "lifecycle", "alice"))
+    expect(bobBranch).toBe(preservedFor(deps, "lifecycle", "bob"))
 
     // 3. Merge both explicitly
     await executeTeamMerge(deps, { member: "alice" }, lead, noopMerge, noopDelete, noopOverlap)

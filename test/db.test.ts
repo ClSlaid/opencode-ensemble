@@ -61,6 +61,7 @@ describe("schema migrations", () => {
   })
 
   test("rolls back a failed migration without leaving half-migrated tables", () => {
+    db.exec("PRAGMA foreign_keys=ON")
     db.exec(`
       CREATE TABLE team (
         id TEXT PRIMARY KEY,
@@ -86,6 +87,17 @@ describe("schema migrations", () => {
     expect(db.query("SELECT name FROM sqlite_master WHERE type='table' AND name='project'").get()).toBeNull()
     const row = db.query("SELECT name FROM team WHERE id = 't1'").get() as { name: string }
     expect(row.name).toBe("old-team")
+    const foreignKeys = db.query("PRAGMA foreign_keys").get() as { foreign_keys: number }
+    expect(foreignKeys.foreign_keys).toBe(1)
+  })
+
+  test("preserves disabled foreign key mode after migrations", () => {
+    db.exec("PRAGMA foreign_keys=OFF")
+
+    applyMigrations(db)
+
+    const foreignKeys = db.query("PRAGMA foreign_keys").get() as { foreign_keys: number }
+    expect(foreignKeys.foreign_keys).toBe(0)
   })
 
   test("upgrades a version 7 database to the current project schema", () => {
@@ -124,6 +136,31 @@ describe("schema migrations", () => {
     expect(task.content).toBe("legacy task")
     const message = db.query("SELECT content, read FROM team_message WHERE id = 'msg-1'").get() as { content: string; read: number }
     expect(message).toEqual({ content: "legacy message", read: 0 })
+  })
+
+  test("enforces project foreign keys after migration 8", () => {
+    applyMigrations(db)
+    db.exec("PRAGMA foreign_keys=ON")
+
+    expect(() =>
+      db.run(
+        "INSERT INTO team (id, name, project_id, lead_session_id, status, delegate, time_created, time_updated) VALUES ('t1', 'orphan', 'missing-project', 'sess1', 'active', 0, 1, 1)"
+      )
+    ).toThrow()
+  })
+
+  test("enforces active team name uniqueness within each project only", () => {
+    applyMigrations(db)
+    db.exec("PRAGMA foreign_keys=ON")
+    db.run("INSERT INTO project (id, name, path, status, time_created, time_updated) VALUES ('/tmp/project-a', 'project-a', '/tmp/project-a', 'active', 1, 1)")
+    db.run("INSERT INTO project (id, name, path, status, time_created, time_updated) VALUES ('/tmp/project-b', 'project-b', '/tmp/project-b', 'active', 1, 1)")
+    db.run("INSERT INTO team (id, name, project_id, lead_session_id, status, delegate, time_created, time_updated) VALUES ('t1', 'same-name', '/tmp/project-a', 'sess1', 'active', 0, 1, 1)")
+    db.run("INSERT INTO team (id, name, project_id, lead_session_id, status, delegate, time_created, time_updated) VALUES ('t2', 'same-name', '/tmp/project-b', 'sess2', 'active', 0, 1, 1)")
+    db.run("INSERT INTO team (id, name, project_id, lead_session_id, status, delegate, time_created, time_updated) VALUES ('t3', 'same-name', '/tmp/project-a', 'sess3', 'archived', 0, 1, 1)")
+
+    expect(() =>
+      db.run("INSERT INTO team (id, name, project_id, lead_session_id, status, delegate, time_created, time_updated) VALUES ('t4', 'same-name', '/tmp/project-a', 'sess4', 'active', 0, 1, 1)")
+    ).toThrow()
   })
 
   test("can insert and query a team", () => {

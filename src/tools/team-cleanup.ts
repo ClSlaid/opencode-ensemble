@@ -2,7 +2,7 @@ import type { ToolDeps } from "../types"
 import { requireLead, requireCanPurgeArchivedTeams, checkWorktreeDirty } from "./shared"
 import type { IsDirtyFn } from "./shared"
 import { spawnFailures } from "./team-spawn"
-import { mergeBranch, deleteBranch, preserveBranch, preservedBranchName, getOverlappingFiles } from "./merge-helper"
+import { getTeamResourceParts, mergeBranch, deleteBranch, preserveBranch, preservedBranchName, getOverlappingFiles, teamResourceSegment } from "./merge-helper"
 import type { MergeBranchFn, DeleteBranchFn, PreserveBranchFn, OverlapCheckFn } from "./merge-helper"
 import { log } from "../log"
 
@@ -14,6 +14,7 @@ interface PurgeTarget {
   id: string
   name: string
   project_id: string
+  project_name: string
   time_updated: number
 }
 
@@ -29,6 +30,7 @@ interface PurgeStats extends PurgeTarget {
 interface PurgeMemberResource {
   team_id: string
   team_name: string
+  project_name: string
   member_name: string
   worktree_dir: string | null
   workspace_id: string | null
@@ -79,15 +81,15 @@ function resolvePurgeTargets(deps: ToolDeps, purge: string[]): PurgeTarget[] {
   }
 
   if (purge.includes("*")) {
-    return deps.db.query("SELECT id, name, project_id, time_updated FROM team WHERE status = 'archived' AND project_id = ? ORDER BY time_updated DESC, name ASC")
+    return deps.db.query("SELECT t.id, t.name, t.project_id, p.name as project_name, t.time_updated FROM team t JOIN project p ON t.project_id = p.id WHERE t.status = 'archived' AND t.project_id = ? ORDER BY t.time_updated DESC, t.name ASC")
       .all(deps.directory) as PurgeTarget[]
   }
 
   const uniqueNames = [...new Set(purge)]
   const rows = uniqueNames.map(name => ({
     name,
-    teams: deps.db.query("SELECT id, name, project_id, status, time_updated FROM team WHERE name = ? AND project_id = ? ORDER BY time_updated DESC")
-      .all(name, deps.directory) as Array<{ id: string; name: string; project_id: string; status: string; time_updated: number }>,
+    teams: deps.db.query("SELECT t.id, t.name, t.project_id, p.name as project_name, t.status, t.time_updated FROM team t JOIN project p ON t.project_id = p.id WHERE t.name = ? AND t.project_id = ? ORDER BY t.time_updated DESC")
+      .all(name, deps.directory) as Array<{ id: string; name: string; project_id: string; project_name: string; status: string; time_updated: number }>,
   }))
 
   const missing = rows.filter(row => row.teams.length === 0).map(row => row.name)
@@ -123,6 +125,7 @@ function deleteArchivedTeams(deps: ToolDeps, targets: PurgeTarget[]): void {
 function getPurgeMemberResources(deps: ToolDeps, targets: PurgeTarget[]): PurgeMemberResource[] {
   return targets.flatMap(target => deps.db.query(
     `SELECT t.name as team_name,
+            p.name as project_name,
             tm.team_id,
             tm.name as member_name,
             tm.worktree_dir,
@@ -130,12 +133,13 @@ function getPurgeMemberResources(deps: ToolDeps, targets: PurgeTarget[]): PurgeM
             tm.worktree_branch
      FROM team_member tm
      JOIN team t ON tm.team_id = t.id
+     JOIN project p ON t.project_id = p.id
      WHERE tm.team_id = ?`
   ).all(target.id) as PurgeMemberResource[])
 }
 
 function preservedBranchPrefix(resource: PurgeMemberResource): string {
-  return `ensemble/preserved/${resource.team_id}/`
+  return `ensemble/preserved/${resource.project_name}/${teamResourceSegment(resource.team_name, resource.team_id)}/`
 }
 
 function legacyPreservedBranchPrefix(resource: PurgeMemberResource): string {
@@ -315,10 +319,10 @@ async function collectPreservedBranches(
   listBranches: ListBranchesFn,
 ): Promise<Map<string, string[]>> {
   const entries: Array<[string, string[]]> = await Promise.all(targets.map(async target => {
-    const prefixes = [`ensemble/preserved/${target.id}/`, `ensemble/preserved/${target.name}/`]
+    const prefixes = [`ensemble/preserved/${target.project_name}/${teamResourceSegment(target.name, target.id)}/`, `ensemble/preserved/${target.name}/`]
     let listed: string[]
     try {
-      listed = [...await listBranches(target.id, cwd), ...await listBranches(target.name, cwd)]
+      listed = [...await listBranches(target.project_name, cwd), ...await listBranches(target.name, cwd)]
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       if (message.includes("not a git repository")) listed = []
@@ -488,7 +492,8 @@ export async function executeTeamCleanup(
     for (const member of active) {
       // Preserve branch before abort — session.abort() may destroy the worktree + branch
       if (member.worktree_branch && !member.worktree_branch.startsWith("ensemble/preserved/")) {
-        const safeBranch = preservedBranchName(teamInfo.teamId, member.name)
+        const resource = getTeamResourceParts(deps.db, teamInfo.teamId)
+        const safeBranch = preservedBranchName(resource.projectName, resource.teamName, resource.teamId, member.name)
         const ok = await preserveBranch(member.worktree_branch, safeBranch, deps.directory)
         if (ok) {
           deps.db.run("UPDATE team_member SET worktree_branch = ? WHERE team_id = ? AND name = ?",

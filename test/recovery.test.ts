@@ -368,7 +368,7 @@ describe("recoverOrphanedBranches", () => {
     Bun.spawn = ((cmd: string[]) => {
       if (cmd[0] === "git" && cmd[1] === "branch" && cmd[2] === "--list") {
         return {
-          stdout: new Response("ensemble/preserved/t1/alice\nensemble/preserved/alpha/legacy-alice\nensemble/preserved/t2/bob\n").body!,
+          stdout: new Response("ensemble/preserved/project-a/alpha#t1/alice\nensemble/preserved/alpha/legacy-alice\nensemble/preserved/project-b/beta#t2/bob\n").body!,
           stderr: new Response("").body!,
           exited: Promise.resolve(0),
         }
@@ -387,7 +387,7 @@ describe("recoverOrphanedBranches", () => {
     try {
       const result = await recoverOrphanedBranches(db, "/tmp/project-a")
       expect(result.removed).toBe(2)
-      expect(deleted).toEqual(["ensemble/preserved/t1/alice", "ensemble/preserved/alpha/legacy-alice"])
+      expect(deleted).toEqual(["ensemble/preserved/project-a/alpha#t1/alice", "ensemble/preserved/alpha/legacy-alice"])
     } finally {
       Bun.spawn = originalSpawn
     }

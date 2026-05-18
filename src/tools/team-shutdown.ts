@@ -1,7 +1,7 @@
 import type { ToolDeps } from "../types"
 import { requireLead, checkWorktreeDirty, countBranchCommits } from "./shared"
 import type { IsDirtyFn, CommitCountFn } from "./shared"
-import { preserveBranch, preservedBranchName } from "./merge-helper"
+import { getTeamResourceParts, preserveBranch, preservedBranchName } from "./merge-helper"
 import type { PreserveBranchFn } from "./merge-helper"
 import { log } from "../log"
 
@@ -55,7 +55,8 @@ export async function executeTeamShutdown(
   // Branch must be preserved NOW — if the session crashes during shutdown_requested,
   // the worktree and branch could be lost before force-abort ever runs.
   if (member.worktree_branch) {
-    const safeBranch = preservedBranchName(teamInfo.teamId, args.member)
+    const resource = getTeamResourceParts(deps.db, teamInfo.teamId)
+    const safeBranch = preservedBranchName(resource.projectName, resource.teamName, resource.teamId, args.member)
     const ok = await preserve(member.worktree_branch, safeBranch, deps.directory)
     if (ok) {
       deps.db.run(
@@ -101,7 +102,8 @@ async function preserveAndAbort(
 ): Promise<void> {
   // Preserve the branch BEFORE aborting — session.abort() may delete the worktree + branch
   if (worktreeBranch && !worktreeBranch.startsWith("ensemble/preserved/")) {
-    const safeBranch = preservedBranchName(teamId, memberName)
+    const resource = getTeamResourceParts(deps.db, teamId)
+    const safeBranch = preservedBranchName(resource.projectName, resource.teamName, resource.teamId, memberName)
     const ok = await preserve(worktreeBranch, safeBranch, deps.directory)
     if (ok) {
       deps.db.run(

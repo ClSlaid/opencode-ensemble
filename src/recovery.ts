@@ -2,7 +2,7 @@ import type { Database } from "bun:sqlite"
 import type { PluginClient } from "./types"
 import type { MemberRegistry } from "./state"
 import { getUndeliveredMessages, markDelivered, hasReportedCompletion } from "./messaging"
-import { preserveBranch, preservedBranchName } from "./tools/merge-helper"
+import { preserveBranch, preservedBranchName, teamResourceSegment } from "./tools/merge-helper"
 import { log } from "./log"
 
 /**
@@ -15,12 +15,13 @@ import { log } from "./log"
 export async function recoverStaleMembers(db: Database, client?: PluginClient, cwd?: string): Promise<{ interrupted: number }> {
   // Find stale members with branch info so we can preserve before aborting
   const stale = db.query(
-    `SELECT tm.session_id, tm.worktree_branch, tm.name, tm.team_id
+    `SELECT tm.session_id, tm.worktree_branch, tm.name, tm.team_id, t.name as team_name, p.name as project_name
       FROM team_member tm
       JOIN team t ON tm.team_id = t.id
+      JOIN project p ON t.project_id = p.id
       WHERE tm.status = 'busy' AND t.status = 'active'
         AND (? IS NULL OR t.project_id = ? OR t.project_id = 'default')`
-  ).all(cwd ?? null, cwd ?? null) as Array<{ session_id: string; worktree_branch: string | null; name: string; team_id: string }>
+  ).all(cwd ?? null, cwd ?? null) as Array<{ session_id: string; worktree_branch: string | null; name: string; team_id: string; team_name: string; project_name: string }>
 
   const result = db.run(
     `UPDATE team_member SET status = 'error', execution_status = 'idle', time_updated = ?
@@ -34,7 +35,7 @@ export async function recoverStaleMembers(db: Database, client?: PluginClient, c
     for (const member of stale) {
       // Preserve branch BEFORE abort — session.abort() may destroy the worktree + branch
       if (cwd && member.worktree_branch && !member.worktree_branch.startsWith("ensemble/preserved/")) {
-        const safeBranch = preservedBranchName(member.team_id, member.name)
+        const safeBranch = preservedBranchName(member.project_name, member.team_name, member.team_id, member.name)
         const ok = await preserveBranch(member.worktree_branch, safeBranch, cwd)
         if (ok) {
           db.run("UPDATE team_member SET worktree_branch = ? WHERE team_id = ? AND name = ?",
@@ -157,18 +158,22 @@ export async function recoverOrphanedBranches(db: Database, cwd: string): Promis
   // Get archived team namespaces for this project that have NO active members.
   // The team id namespace is current; team names are kept for legacy preserved branches.
   const archivedTeams = db.query(
-    `SELECT t.id, t.name FROM team t
+    `SELECT t.id, t.name, p.name as project_name FROM team t
+     JOIN project p ON t.project_id = p.id
      WHERE t.status = 'archived'
       AND t.project_id = ?
      AND NOT EXISTS (
         SELECT 1 FROM team_member tm
         WHERE tm.team_id = t.id AND tm.status NOT IN ('shutdown', 'error')
       )`
-  ).all(cwd) as Array<{ id: string; name: string }>
+  ).all(cwd) as Array<{ id: string; name: string; project_name: string }>
 
   if (archivedTeams.length === 0) return { removed: 0 }
 
-  const archivedNamespaces = new Set(archivedTeams.flatMap(t => [t.id, t.name]))
+  const archivedPrefixes = archivedTeams.flatMap(t => [
+    `ensemble/preserved/${t.project_name}/${teamResourceSegment(t.name, t.id)}/`,
+    `ensemble/preserved/${t.name}/`,
+  ])
 
   // List all local branches matching ensemble/preserved/*
   const proc = Bun.spawn(["git", "branch", "--list", "ensemble/preserved/*"], { cwd, stdout: "pipe", stderr: "pipe" })
@@ -179,11 +184,7 @@ export async function recoverOrphanedBranches(db: Database, cwd: string): Promis
   const branches = stdout.split("\n").map(b => b.trim().replace(/^\* /, "")).filter(Boolean)
 
   for (const branch of branches) {
-    // Parse namespace from branch: ensemble/preserved/{teamId|legacyTeamName}/{memberName}
-    const parts = branch.split("/")
-    if (parts.length < 4) continue
-    const namespace = parts[2]
-    if (!namespace || !archivedNamespaces.has(namespace)) continue
+    if (!archivedPrefixes.some(prefix => branch.startsWith(prefix))) continue
 
     try {
       const del = Bun.spawn(["git", "branch", "-D", branch], { cwd, stdout: "pipe", stderr: "pipe" })
