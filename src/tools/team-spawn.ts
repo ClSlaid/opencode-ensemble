@@ -96,7 +96,7 @@ export async function executeTeamSpawn(
   let worktreeBranch: string | null = null
 
   if (useWorktree) {
-    const worktreeName = `ensemble-${teamInfo.teamName}-${args.name}`
+    const worktreeName = `ensemble-${teamInfo.teamId}-${args.name}`
     try {
       log(`spawn:worktree:start name=${args.name}`)
       const result = await withTimeout(

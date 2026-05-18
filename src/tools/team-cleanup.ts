@@ -7,7 +7,7 @@ import type { MergeBranchFn, DeleteBranchFn, PreserveBranchFn, OverlapCheckFn } 
 import { log } from "../log"
 
 type PurgeApprovalFn = (preview: string) => Promise<void>
-type ListBranchesFn = (teamName: string, cwd: string) => Promise<string[]>
+type ListBranchesFn = (namespace: string, cwd: string) => Promise<string[]>
 type BranchExistsFn = (branch: string, cwd: string) => Promise<boolean>
 
 interface PurgeTarget {
@@ -35,9 +35,9 @@ interface PurgeMemberResource {
   worktree_branch: string | null
 }
 
-async function listPreservedBranches(teamName: string, cwd: string): Promise<string[]> {
+async function listPreservedBranches(namespace: string, cwd: string): Promise<string[]> {
   try {
-    const proc = Bun.spawn(["git", "branch", "--list", `ensemble/preserved/${teamName}/*`, "--format", "%(refname:short)"], { cwd, stdout: "pipe", stderr: "pipe" })
+    const proc = Bun.spawn(["git", "branch", "--list", `ensemble/preserved/${namespace}/*`, "--format", "%(refname:short)"], { cwd, stdout: "pipe", stderr: "pipe" })
     const out = await new Response(proc.stdout).text()
     const stderr = await new Response(proc.stderr).text()
     const exit = await proc.exited
@@ -46,7 +46,7 @@ async function listPreservedBranches(teamName: string, cwd: string): Promise<str
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     if (message.includes("not a git repository")) return []
-    throw new Error(`Failed to list preserved branches for ${teamName}: ${err instanceof Error ? err.message : String(err)}`)
+    throw new Error(`Failed to list preserved branches for ${namespace}: ${err instanceof Error ? err.message : String(err)}`)
   }
 }
 
@@ -79,15 +79,15 @@ function resolvePurgeTargets(deps: ToolDeps, purge: string[]): PurgeTarget[] {
   }
 
   if (purge.includes("*")) {
-    return deps.db.query("SELECT id, name, project_id, time_updated FROM team WHERE status = 'archived' ORDER BY time_updated DESC, name ASC")
-      .all() as PurgeTarget[]
+    return deps.db.query("SELECT id, name, project_id, time_updated FROM team WHERE status = 'archived' AND project_id = ? ORDER BY time_updated DESC, name ASC")
+      .all(deps.directory) as PurgeTarget[]
   }
 
   const uniqueNames = [...new Set(purge)]
   const rows = uniqueNames.map(name => ({
     name,
-    teams: deps.db.query("SELECT id, name, project_id, status, time_updated FROM team WHERE name = ? ORDER BY project_id ASC, time_updated DESC")
-      .all(name) as Array<{ id: string; name: string; project_id: string; status: string; time_updated: number }>,
+    teams: deps.db.query("SELECT id, name, project_id, status, time_updated FROM team WHERE name = ? AND project_id = ? ORDER BY time_updated DESC")
+      .all(name, deps.directory) as Array<{ id: string; name: string; project_id: string; status: string; time_updated: number }>,
   }))
 
   const missing = rows.filter(row => row.teams.length === 0).map(row => row.name)
@@ -95,11 +95,6 @@ function resolvePurgeTargets(deps: ToolDeps, purge: string[]): PurgeTarget[] {
 
   const active = rows.filter(row => row.teams.some(team => team.status === "active")).map(row => row.name)
   if (active.length > 0) throw new Error(`Cannot purge active team: ${active.join(", ")}`)
-
-  const ambiguous = rows.filter(row => row.teams.length > 1).map(row => row.name)
-  if (ambiguous.length > 0) {
-    throw new Error(`Ambiguous archived team name across projects: ${ambiguous.join(", ")}. Use purge: ['*'] or clean up one project at a time.`)
-  }
 
   return rows
     .map(row => row.teams[0]!)
@@ -140,18 +135,26 @@ function getPurgeMemberResources(deps: ToolDeps, targets: PurgeTarget[]): PurgeM
 }
 
 function preservedBranchPrefix(resource: PurgeMemberResource): string {
+  return `ensemble/preserved/${resource.team_id}/`
+}
+
+function legacyPreservedBranchPrefix(resource: PurgeMemberResource): string {
   return `ensemble/preserved/${resource.team_name}/`
 }
 
 function staleEnsembleBranchNames(resource: PurgeMemberResource): string[] {
   return [
+    `ensemble-${resource.team_id}-${resource.member_name}`,
     `ensemble-${resource.team_name}-${resource.member_name}`,
     `opencode/ensemble-${resource.team_name}-${resource.member_name}`,
   ]
 }
 
 function isPreservedBranch(resource: PurgeMemberResource): boolean {
-  return resource.worktree_branch !== null && resource.worktree_branch.startsWith(preservedBranchPrefix(resource))
+  return resource.worktree_branch !== null && (
+    resource.worktree_branch.startsWith(preservedBranchPrefix(resource)) ||
+    resource.worktree_branch.startsWith(legacyPreservedBranchPrefix(resource))
+  )
 }
 
 function isStaleEnsembleBranch(resource: PurgeMemberResource): boolean {
@@ -312,16 +315,16 @@ async function collectPreservedBranches(
   listBranches: ListBranchesFn,
 ): Promise<Map<string, string[]>> {
   const entries: Array<[string, string[]]> = await Promise.all(targets.map(async target => {
-    const prefix = `ensemble/preserved/${target.name}/`
+    const prefixes = [`ensemble/preserved/${target.id}/`, `ensemble/preserved/${target.name}/`]
     let listed: string[]
     try {
-      listed = await listBranches(target.name, cwd)
+      listed = [...await listBranches(target.id, cwd), ...await listBranches(target.name, cwd)]
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       if (message.includes("not a git repository")) listed = []
-      else throw new Error(`Failed to list preserved branches for ${target.name}: ${message}`)
+      else throw new Error(`Failed to list preserved branches for ${target.id}: ${message}`)
     }
-    const branches = listed.map(normalizeBranchName).filter(branch => branch.startsWith(prefix))
+    const branches = listed.map(normalizeBranchName).filter(branch => prefixes.some(prefix => branch.startsWith(prefix)))
     return [target.id, [...new Set(branches)]]
   }))
   return new Map(entries)
@@ -485,7 +488,7 @@ export async function executeTeamCleanup(
     for (const member of active) {
       // Preserve branch before abort — session.abort() may destroy the worktree + branch
       if (member.worktree_branch && !member.worktree_branch.startsWith("ensemble/preserved/")) {
-        const safeBranch = preservedBranchName(teamInfo.teamName, member.name)
+        const safeBranch = preservedBranchName(teamInfo.teamId, member.name)
         const ok = await preserveBranch(member.worktree_branch, safeBranch, deps.directory)
         if (ok) {
           deps.db.run("UPDATE team_member SET worktree_branch = ? WHERE team_id = ? AND name = ?",

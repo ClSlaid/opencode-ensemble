@@ -174,6 +174,31 @@ describe("recoverStaleMembers", () => {
     expect(abortCalls).toHaveLength(1)
     expect((abortCalls[0]!.args[0] as { sessionID: string }).sessionID).toBe("sess-1")
   })
+
+  test("recovers legacy default-project members when current project is provided", async () => {
+    insertTeam(db, "legacy", "legacy-team", "legacy-lead")
+    insertMember(db, "legacy", "alice", "sess-legacy", "busy", "running")
+
+    insertTeam(db, "current", "current-team", "current-lead")
+    db.run("INSERT OR IGNORE INTO project (id, name, path, status, time_created, time_updated) VALUES (?, ?, ?, 'active', ?, ?)", ["/tmp/project-a", "project-a", "/tmp/project-a", Date.now(), Date.now()])
+    db.run("UPDATE team SET project_id = ? WHERE id = ?", ["/tmp/project-a", "current"])
+    insertMember(db, "current", "bob", "sess-current", "busy", "running")
+
+    insertTeam(db, "other", "other-team", "other-lead")
+    db.run("INSERT OR IGNORE INTO project (id, name, path, status, time_created, time_updated) VALUES (?, ?, ?, 'active', ?, ?)", ["/tmp/project-b", "project-b", "/tmp/project-b", Date.now(), Date.now()])
+    db.run("UPDATE team SET project_id = ? WHERE id = ?", ["/tmp/project-b", "other"])
+    insertMember(db, "other", "cara", "sess-other", "busy", "running")
+
+    const result = await recoverStaleMembers(db, client, "/tmp/project-a")
+    expect(result.interrupted).toBe(2)
+
+    const alice = db.query("SELECT status FROM team_member WHERE name = ?").get("alice") as { status: string }
+    const bob = db.query("SELECT status FROM team_member WHERE name = ?").get("bob") as { status: string }
+    const cara = db.query("SELECT status FROM team_member WHERE name = ?").get("cara") as { status: string }
+    expect(alice.status).toBe("error")
+    expect(bob.status).toBe("error")
+    expect(cara.status).toBe("busy")
+  })
 })
 
 describe("recoverUndeliveredMessages", () => {

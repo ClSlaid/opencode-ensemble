@@ -15,17 +15,17 @@ import { log } from "./log"
 export async function recoverStaleMembers(db: Database, client?: PluginClient, cwd?: string): Promise<{ interrupted: number }> {
   // Find stale members with branch info so we can preserve before aborting
   const stale = db.query(
-    `SELECT tm.session_id, tm.worktree_branch, tm.name, tm.team_id, t.name as team_name
+    `SELECT tm.session_id, tm.worktree_branch, tm.name, tm.team_id
       FROM team_member tm
       JOIN team t ON tm.team_id = t.id
       WHERE tm.status = 'busy' AND t.status = 'active'
-        AND (? IS NULL OR t.project_id = ?)`
-  ).all(cwd ?? null, cwd ?? null) as Array<{ session_id: string; worktree_branch: string | null; name: string; team_id: string; team_name: string }>
+        AND (? IS NULL OR t.project_id = ? OR t.project_id = 'default')`
+  ).all(cwd ?? null, cwd ?? null) as Array<{ session_id: string; worktree_branch: string | null; name: string; team_id: string }>
 
   const result = db.run(
     `UPDATE team_member SET status = 'error', execution_status = 'idle', time_updated = ?
       WHERE status = 'busy'
-        AND team_id IN (SELECT id FROM team WHERE status = 'active' AND (? IS NULL OR project_id = ?))`,
+        AND team_id IN (SELECT id FROM team WHERE status = 'active' AND (? IS NULL OR project_id = ? OR project_id = 'default'))`,
     [Date.now(), cwd ?? null, cwd ?? null]
   )
 
@@ -34,7 +34,7 @@ export async function recoverStaleMembers(db: Database, client?: PluginClient, c
     for (const member of stale) {
       // Preserve branch BEFORE abort — session.abort() may destroy the worktree + branch
       if (cwd && member.worktree_branch && !member.worktree_branch.startsWith("ensemble/preserved/")) {
-        const safeBranch = preservedBranchName(member.team_name, member.name)
+        const safeBranch = preservedBranchName(member.team_id, member.name)
         const ok = await preserveBranch(member.worktree_branch, safeBranch, cwd)
         if (ok) {
           db.run("UPDATE team_member SET worktree_branch = ? WHERE team_id = ? AND name = ?",

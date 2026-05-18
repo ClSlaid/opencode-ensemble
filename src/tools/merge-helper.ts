@@ -107,6 +107,6 @@ export async function getOverlappingFiles(branch: string, cwd: string): Promise<
 /**
  * Build the preserved branch name for a team member.
  */
-export function preservedBranchName(teamName: string, memberName: string): string {
-  return `ensemble/preserved/${teamName}/${memberName}`
+export function preservedBranchName(teamId: string, memberName: string): string {
+  return `ensemble/preserved/${teamId}/${memberName}`
 }
