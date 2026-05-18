@@ -154,21 +154,21 @@ export async function recoverUndeliveredMessages(
 export async function recoverOrphanedBranches(db: Database, cwd: string): Promise<{ removed: number }> {
   let removed = 0
 
-  // Get archived team names for this project that have NO active members.
-  // Project scoping matters because preserved branch names only include team names.
+  // Get archived team namespaces for this project that have NO active members.
+  // The team id namespace is current; team names are kept for legacy preserved branches.
   const archivedTeams = db.query(
-    `SELECT t.name FROM team t
+    `SELECT t.id, t.name FROM team t
      WHERE t.status = 'archived'
       AND t.project_id = ?
      AND NOT EXISTS (
         SELECT 1 FROM team_member tm
         WHERE tm.team_id = t.id AND tm.status NOT IN ('shutdown', 'error')
       )`
-  ).all(cwd) as Array<{ name: string }>
+  ).all(cwd) as Array<{ id: string; name: string }>
 
   if (archivedTeams.length === 0) return { removed: 0 }
 
-  const archivedNames = new Set(archivedTeams.map(t => t.name))
+  const archivedNamespaces = new Set(archivedTeams.flatMap(t => [t.id, t.name]))
 
   // List all local branches matching ensemble/preserved/*
   const proc = Bun.spawn(["git", "branch", "--list", "ensemble/preserved/*"], { cwd, stdout: "pipe", stderr: "pipe" })
@@ -179,11 +179,11 @@ export async function recoverOrphanedBranches(db: Database, cwd: string): Promis
   const branches = stdout.split("\n").map(b => b.trim().replace(/^\* /, "")).filter(Boolean)
 
   for (const branch of branches) {
-    // Parse team name from branch: ensemble/preserved/{teamName}/{memberName}
+    // Parse namespace from branch: ensemble/preserved/{teamId|legacyTeamName}/{memberName}
     const parts = branch.split("/")
     if (parts.length < 4) continue
-    const teamName = parts[2]
-    if (!teamName || !archivedNames.has(teamName)) continue
+    const namespace = parts[2]
+    if (!namespace || !archivedNamespaces.has(namespace)) continue
 
     try {
       const del = Bun.spawn(["git", "branch", "-D", branch], { cwd, stdout: "pipe", stderr: "pipe" })
