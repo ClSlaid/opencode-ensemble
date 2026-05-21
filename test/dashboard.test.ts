@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test"
-import type { Database } from "bun:sqlite"
+import type { Database } from "../src/db"
 import { setupDb, insertTeam, insertMember } from "./helpers"
 import { startDashboard } from "../src/dashboard"
 
@@ -172,6 +172,60 @@ describe("dashboard", () => {
       server = await startDashboard(db, port)
       const res = await fetch(`http://localhost:${port}/nope`)
       expect(res.status).toBe(404)
+    })
+  })
+
+  describe("stop(force)", () => {
+    test("stop(true) closes in-flight sockets so the port frees up promptly", async () => {
+      server = await startDashboard(db, port)
+      expect(server).toBeTruthy()
+
+      // Open a raw TCP socket to the dashboard and leave it dangling.
+      // node:http with keep-alive will keep the listener busy until the
+      // keep-alive timeout if we only call server.close() — server.stop(true)
+      // must call closeAllConnections() to terminate this socket promptly.
+      const net = await import("node:net")
+      const dangling = await new Promise<import("node:net").Socket>((resolve, reject) => {
+        const sock = net.createConnection({ port, host: "127.0.0.1" }, () => {
+          sock.write("GET /api/health HTTP/1.1\r\nHost: localhost\r\nConnection: keep-alive\r\n\r\n")
+        })
+        sock.on("error", reject)
+        sock.once("data", () => resolve(sock))
+      })
+
+      // Forcefully stop within a short window. server.close() alone would
+      // wait for the keep-alive socket to drain (default 5s in node:http).
+      const stopStart = Date.now()
+      server!.stop(true)
+      server = null
+      const stopElapsed = Date.now() - stopStart
+
+      // Cleanup the dangling socket
+      dangling.destroy()
+
+      // The synchronous stop() call returns immediately — the assertion
+      // is that a new server can bind to the same port without waiting.
+      expect(stopElapsed).toBeLessThan(500)
+
+      // Probe the port directly with a fresh listener. Avoids racing the
+      // full dashboard startup against an arbitrary timer under CI load.
+      // Tries up to 3 times to absorb brief TIME_WAIT / cross-test races.
+      const tryProbe = async (): Promise<boolean> => {
+        const probe = net.createServer()
+        const ok = await new Promise<boolean>((resolve) => {
+          probe.once("error", () => resolve(false))
+          probe.listen(port, "127.0.0.1", () => resolve(true))
+        })
+        await new Promise<void>((r) => probe.close(() => r()))
+        return ok
+      }
+      let probeBound = await tryProbe()
+      for (let i = 0; !probeBound && i < 2; i++) {
+        await new Promise((r) => setTimeout(r, 50))
+        probeBound = await tryProbe()
+      }
+
+      expect(probeBound).toBe(true)
     })
   })
 })

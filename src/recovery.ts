@@ -1,9 +1,10 @@
-import type { Database } from "bun:sqlite"
+import type { Database } from "./db"
 import type { PluginClient } from "./types"
 import type { MemberRegistry } from "./state"
 import { getUndeliveredMessages, markDelivered, hasReportedCompletion } from "./messaging"
 import { preserveBranch, preservedBranchName } from "./tools/merge-helper"
 import { log } from "./log"
+import { runCommand } from "./process"
 
 /**
  * Scan for team members stuck in 'busy' status (stale from a crash)
@@ -146,6 +147,30 @@ export async function recoverUndeliveredMessages(
 }
 
 /**
+ * Repopulate the in-memory MemberRegistry from SQLite for all active members.
+ * MUST be called on every plugin init — the registry is in-memory only,
+ * and without rehydration, every team_* tool call from an existing
+ * teammate fails with "This session is not in a team." after a plugin restart.
+ *
+ * Skips members in terminal states (shutdown, error) — they should not
+ * receive future messages.
+ *
+ * Returns the number of members rehydrated.
+ */
+export function rehydrateRegistry(db: Database, registry: MemberRegistry): number {
+  const members = db.query(
+    `SELECT tm.team_id, tm.name, tm.session_id
+     FROM team_member tm
+     JOIN team t ON tm.team_id = t.id
+     WHERE t.status = 'active' AND tm.status NOT IN ('shutdown', 'error')`
+  ).all() as Array<{ team_id: string; name: string; session_id: string }>
+  for (const m of members) {
+    registry.register(m.team_id, m.name, m.session_id)
+  }
+  return members.length
+}
+
+/**
  * Clean up orphaned ensemble/preserved/* branches that belong to archived teams
  * with no active members. Scoped carefully to avoid interfering with other
  * running OpenCode sessions that may have active teams.
@@ -168,12 +193,9 @@ export async function recoverOrphanedBranches(db: Database, cwd: string): Promis
   const archivedNames = new Set(archivedTeams.map(t => t.name))
 
   // List all local branches matching ensemble/preserved/*
-  const proc = Bun.spawn(["git", "branch", "--list", "ensemble/preserved/*"], { cwd, stdout: "pipe", stderr: "pipe" })
-  const stdoutPromise = new Response(proc.stdout).text()
-  await proc.exited
-  const stdout = await stdoutPromise
+  const result = await runCommand(["git", "branch", "--list", "ensemble/preserved/*"], { cwd })
 
-  const branches = stdout.split("\n").map(b => b.trim().replace(/^\* /, "")).filter(Boolean)
+  const branches = result.stdout.split("\n").map(b => b.trim().replace(/^\* /, "")).filter(Boolean)
 
   for (const branch of branches) {
     // Parse team name from branch: ensemble/preserved/{teamName}/{memberName}
@@ -183,9 +205,8 @@ export async function recoverOrphanedBranches(db: Database, cwd: string): Promis
     if (!teamName || !archivedNames.has(teamName)) continue
 
     try {
-      const del = Bun.spawn(["git", "branch", "-D", branch], { cwd, stdout: "pipe", stderr: "pipe" })
-      const exitCode = await del.exited
-      if (exitCode === 0) {
+      const deleteResult = await runCommand(["git", "branch", "-D", branch], { cwd })
+      if (deleteResult.exitCode === 0) {
         removed++
         log(`recovery:branch:deleted branch=${branch}`)
       }

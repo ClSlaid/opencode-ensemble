@@ -5,10 +5,10 @@ import path from "node:path"
 import { mkdirSync } from "node:fs"
 import { createDb, getDbPath } from "./db"
 import { wrapThrowingClient } from "./client"
-import { recoverStaleMembers, recoverUndeliveredMessages, recoverOrphanedWorktrees, recoverOrphanedBranches } from "./recovery"
+import { recoverStaleMembers, recoverUndeliveredMessages, recoverOrphanedWorktrees, recoverOrphanedBranches, rehydrateRegistry } from "./recovery"
 import { MemberRegistry, DescendantTracker, PendingPurgeApprovals } from "./state"
 import { isWorktreeInstance } from "./util"
-import { handleSessionStatusEvent, handleSessionCreatedEvent, checkToolIsolation, shouldNudgeIdleMember } from "./hooks"
+import { handleSessionStatusEvent, handleSessionCreatedEvent, checkToolIsolation, shouldNudgeIdleMember, handleSessionErrorEvent } from "./hooks"
 import { notifyTeamEvent, notifyWorkingProgress } from "./notify"
 import { sendMessage, hasReportedCompletion } from "./messaging"
 import { buildLeadSystemPrompt, buildTeammateSystemPrompt, buildTeamCompactionContext } from "./system-prompt"
@@ -80,13 +80,16 @@ const plugin: Plugin = async (input) => {
     const recovery = await recoverStaleMembers(db, client, input.directory)
     if (recovery.interrupted > 0) {
       log(`init:recovery:interrupted=${recovery.interrupted}`)
-      const members = db.query(
-        "SELECT tm.team_id, tm.name, tm.session_id FROM team_member tm JOIN team t ON tm.team_id = t.id WHERE t.status = 'active'"
-      ).all() as Array<{ team_id: string; name: string; session_id: string }>
-      for (const m of members) {
-        registry.register(m.team_id, m.name, m.session_id)
-      }
     }
+
+    // Always rehydrate the in-memory registry from SQLite. The registry is
+    // in-memory only and is wiped on every plugin restart. Without this,
+    // teammates from a previous lifetime become invisible — every team_*
+    // tool call from them throws "This session is not in a team." This is
+    // the bug that surfaced on Desktop, where the Electron sidecar restarts
+    // far more often than the CLI.
+    const rehydrated = rehydrateRegistry(db, registry)
+    if (rehydrated > 0) log(`init:registry:rehydrated members=${rehydrated}`)
 
     recoverUndeliveredMessages(db, client, registry).catch((err) => {
       log(`init:recover-messages:failed err=${err instanceof Error ? err.message : String(err)}`)
@@ -285,6 +288,15 @@ const plugin: Plugin = async (input) => {
         }
       }
 
+      // Surface teammate session errors as system messages to the lead.
+      // Without this, errors during a teammate's prompt loop (auth failure,
+      // tool failure, model error, etc.) are invisible to the lead — the
+      // teammate just appears stuck.
+      if (event.type === "session.error") {
+        const props = event.properties as { sessionID?: string; error?: { name?: string; data?: { message?: string } } }
+        handleSessionErrorEvent(db, registry, props.sessionID, props.error)
+      }
+
       // Track per-step output tokens for stall detection
       if (event.type === "message.part.updated") {
         const part = (event.properties as { part?: { type?: string; sessionID?: string; tokens?: { output?: number } } }).part
@@ -298,7 +310,7 @@ const plugin: Plugin = async (input) => {
 
     // Sub-agent isolation + rate limiting hook
     "tool.execute.before": async (input, _output) => {
-      checkToolIsolation(registry, tracker, input.tool, input.sessionID)
+      checkToolIsolation(registry, tracker, input.tool, input.sessionID, db)
       // Rate limit team tools that trigger LLM inference
       if (input.tool.startsWith("team_")) {
         if (!rateLimiter.tryConsume()) {
