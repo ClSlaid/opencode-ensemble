@@ -1,5 +1,7 @@
-import type { Database } from "bun:sqlite"
+import type { Database } from "./db"
 import type { MemberRegistry, DescendantTracker } from "./state"
+import { sendMessage } from "./messaging"
+import { findTeamBySession } from "./types"
 
 const TEAM_TOOL_PREFIX = "team_"
 
@@ -94,22 +96,51 @@ export function handleSessionCreatedEvent(
  * Check whether a tool call should be blocked for sub-agent isolation.
  * Throws if the tool is a team tool and the session is a descendant of a team member.
  * OQ-11: confirmed — throwing inside tool.execute.before fails the tool call gracefully (verified in live testing).
+ *
+ * The optional `db` parameter enables a SQLite fallback so the check works
+ * across multi-Plugin-instance scenarios where the in-memory registry may
+ * not have the parent teammate's session. SQLite is the canonical source.
+ *
+ * Order:
+ *   1. Registry fast-path: if the caller is itself a registered teammate, allow.
+ *   2. Otherwise enumerate active teammate session IDs from registry + SQLite.
+ *   3. If the caller is among them, allow.
+ *   4. If the caller is a descendant of any teammate, block.
+ *
+ * The fast-path skips the SQL query entirely when the registry already
+ * has the caller. Lead sessions are NOT in the MemberRegistry by design
+ * (only teammates are), so a lead's team_* call always misses the
+ * fast-path and does the SQLite enumeration. That's acceptable — the
+ * scan is bounded by total active members and runs once per tool call.
  */
 export function checkToolIsolation(
   registry: MemberRegistry,
   tracker: DescendantTracker,
   toolName: string,
   sessionId: string,
+  db?: Database,
 ): void {
   if (!toolName.startsWith(TEAM_TOOL_PREFIX)) return
 
-  // If the session is a registered team member or lead, allow it
+  // Fast path: registry hit on the caller — skip SQL altogether.
   if (registry.isTeamSession(sessionId)) return
 
-  // Check if this session is a descendant of any team member
-  const allTeamSessions = registry.allSessionIds()
+  // Collect every session ID that is a teammate, from the registry first
+  // (fast path) and SQLite second (covers multi-instance / cross-plugin state).
+  const teammateSessionIds = new Set(registry.allSessionIds())
+  if (db) {
+    const dbRows = db.query(
+      `SELECT tm.session_id FROM team_member tm
+       JOIN team t ON tm.team_id = t.id
+       WHERE t.status = 'active' AND tm.status NOT IN ('shutdown', 'error')`
+    ).all() as Array<{ session_id: string }>
+    for (const row of dbRows) teammateSessionIds.add(row.session_id)
+  }
 
-  if (allTeamSessions.size > 0 && tracker.isDescendantOf(sessionId, allTeamSessions)) {
+  // The caller may be a teammate registered in another Plugin instance — allow.
+  if (teammateSessionIds.has(sessionId)) return
+
+  if (teammateSessionIds.size > 0 && tracker.isDescendantOf(sessionId, teammateSessionIds)) {
     throw new Error("Team tools are not available to sub-agents. Report findings to your parent teammate via your normal output.")
   }
 }
@@ -126,4 +157,40 @@ export function shouldNudgeIdleMember(db: Database, teamId: string, memberName: 
   const msg = db.query("SELECT id FROM team_message WHERE team_id = ? AND from_name = ? AND (to_name = 'lead' OR to_name IS NULL) LIMIT 1")
     .get(teamId, memberName) as { id: string } | null
   return !msg
+}
+
+/** Shape of an error attached to a session.error event. Subset of the SDK's union. */
+export interface SessionErrorPayload {
+  name?: string
+  data?: { message?: string }
+}
+
+/**
+ * Handle a session.error event. Surfaces tool/model failures from a teammate
+ * as a system message to the lead, so otherwise-silent failures are visible.
+ *
+ * Ignored when:
+ * - sessionID is undefined
+ * - the session is not a registered teammate (leads are not in the registry)
+ */
+export function handleSessionErrorEvent(
+  db: Database,
+  registry: MemberRegistry,
+  sessionId: string | undefined,
+  error: SessionErrorPayload | undefined,
+): void {
+  if (!sessionId) return
+  // Use findTeamBySession so the SQLite fallback fires when this Plugin
+  // instance's in-memory registry doesn't have the teammate (multi-instance
+  // scenario — see findTeamBySession in src/types.ts).
+  const teamInfo = findTeamBySession(db, registry, sessionId)
+  if (!teamInfo || teamInfo.role !== "member" || !teamInfo.memberName) return
+
+  const errMsg = error?.data?.message ?? error?.name ?? "unknown error"
+  sendMessage(db, {
+    teamId: teamInfo.teamId,
+    from: "system",
+    to: "lead",
+    content: `Teammate "${teamInfo.memberName}" had a session error: ${errMsg}. Check their session for details. They may be stuck and need investigation or shutdown.`,
+  })
 }
