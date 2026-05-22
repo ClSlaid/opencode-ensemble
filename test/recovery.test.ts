@@ -1,11 +1,24 @@
 import { describe, test, expect, beforeEach } from "bun:test"
 import { Database } from "bun:sqlite"
+import { mkdtemp, rm } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import path from "node:path"
 import { applyMigrations } from "../src/schema"
-import { recoverStaleMembers, recoverUndeliveredMessages, recoverOrphanedBranches, rehydrateRegistry } from "../src/recovery"
+import { recoverStaleMembers, recoverUndeliveredMessages, rehydrateRegistry } from "../src/recovery"
 import type { PluginClient } from "../src/types"
 import { MemberRegistry } from "../src/state"
 import { sendMessage, broadcastMessage } from "../src/messaging"
-import type { CommandResult } from "../src/process"
+
+async function git(cwd: string, args: string[]): Promise<string> {
+  const proc = Bun.spawn(["git", ...args], { cwd, stdout: "pipe", stderr: "pipe" })
+  const [stdout, stderr, exit] = await Promise.all([
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+    proc.exited,
+  ])
+  if (exit !== 0) throw new Error(stderr.trim() || `git ${args.join(" ")} exited with code ${exit}`)
+  return stdout
+}
 
 function setupDb(): Database {
   const db = new Database(":memory:")
@@ -364,21 +377,27 @@ describe("recoverOrphanedBranches", () => {
     db.run("INSERT OR IGNORE INTO project (id, name, path, status, time_created, time_updated) VALUES (?, ?, ?, 'active', ?, ?)", ["/tmp/project-b", "project-b", "/tmp/project-b", Date.now(), Date.now()])
     db.run("UPDATE team SET status = 'archived', project_id = ? WHERE id = ?", ["/tmp/project-b", "t2"])
 
-    const deleted: string[] = []
-    const command = async (cmd: string[]): Promise<CommandResult> => {
-      if (cmd[0] === "git" && cmd[1] === "branch" && cmd[2] === "--list") {
-        return { exitCode: 0, stdout: "ensemble/preserved/project-a/alpha#t1/alice\nensemble/preserved/alpha/legacy-alice\nensemble/preserved/project-b/beta#t2/bob\n", stderr: "" }
-      }
-      if (cmd[0] === "git" && cmd[1] === "branch" && cmd[2] === "-D") {
-        deleted.push(cmd[3]!)
-        return { exitCode: 0, stdout: "", stderr: "" }
-      }
-      return { exitCode: 1, stdout: "", stderr: `unexpected command: ${cmd.join(" ")}` }
-    }
+    const repo = await mkdtemp(path.join(tmpdir(), "ensemble-branches-"))
+    try {
+      db.run("INSERT OR IGNORE INTO project (id, name, path, status, time_created, time_updated) VALUES (?, 'project-a', ?, 'active', ?, ?)", [repo, repo, Date.now(), Date.now()])
+      db.run("UPDATE team SET project_id = ? WHERE id = ?", [repo, "t1"])
+      await git(repo, ["init"])
+      await git(repo, ["config", "user.email", "test@example.com"])
+      await git(repo, ["config", "user.name", "Test User"])
+      await git(repo, ["commit", "--allow-empty", "-m", "init"])
+      await git(repo, ["branch", "ensemble/preserved/project-a/alpha#t1/alice"])
+      await git(repo, ["branch", "ensemble/preserved/alpha/legacy-alice"])
+      await git(repo, ["branch", "ensemble/preserved/project-b/beta#t2/bob"])
 
-    const result = await recoverOrphanedBranches(db, "/tmp/project-a", command)
-    expect(result.removed).toBe(2)
-    expect(deleted).toEqual(["ensemble/preserved/project-a/alpha#t1/alice", "ensemble/preserved/alpha/legacy-alice"])
+      const { recoverOrphanedBranches } = await import("../src/recovery")
+      const result = await recoverOrphanedBranches(db, repo)
+      const remaining = await git(repo, ["branch", "--list", "ensemble/preserved/*", "--format", "%(refname:short)"])
+
+      expect(result.removed).toBe(2)
+      expect(remaining.trim()).toBe("ensemble/preserved/project-b/beta#t2/bob")
+    } finally {
+      await rm(repo, { recursive: true, force: true })
+    }
   })
 })
 

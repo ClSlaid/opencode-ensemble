@@ -38,15 +38,15 @@ interface PurgeMemberResource {
   worktree_branch: string | null
 }
 
-async function listPreservedBranches(namespace: string, cwd: string): Promise<string[]> {
+async function listPreservedBranches(teamName: string, cwd: string): Promise<string[]> {
   try {
-    const result = await runCommand(["git", "branch", "--list", `ensemble/preserved/${namespace}/*`, "--format", "%(refname:short)"], { cwd })
+    const result = await runCommand(["git", "branch", "--list", `ensemble/preserved/${teamName}/*`, "--format", "%(refname:short)"], { cwd })
     if (result.exitCode !== 0) throw new Error(result.stderr.trim() || `git branch exited with code ${result.exitCode}`)
     return result.stdout.split("\n").map(branch => branch.trim()).filter(Boolean)
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     if (message.includes("not a git repository")) return []
-    throw new Error(`Failed to list preserved branches for ${namespace}: ${err instanceof Error ? err.message : String(err)}`)
+    throw new Error(`Failed to list preserved branches for ${teamName}: ${err instanceof Error ? err.message : String(err)}`)
   }
 }
 

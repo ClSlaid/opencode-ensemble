@@ -177,7 +177,7 @@ export function rehydrateRegistry(db: Database, registry: MemberRegistry): numbe
  * with no active members. Scoped carefully to avoid interfering with other
  * running OpenCode sessions that may have active teams.
  */
-export async function recoverOrphanedBranches(db: Database, cwd: string, command = runCommand): Promise<{ removed: number }> {
+export async function recoverOrphanedBranches(db: Database, cwd: string): Promise<{ removed: number }> {
   let removed = 0
 
   // Get archived team namespaces for this project that have NO active members.
@@ -201,7 +201,7 @@ export async function recoverOrphanedBranches(db: Database, cwd: string, command
   ])
 
   // List all local branches matching ensemble/preserved/*
-  const result = await command(["git", "branch", "--list", "ensemble/preserved/*"], { cwd })
+  const result = await runCommand(["git", "branch", "--list", "ensemble/preserved/*"], { cwd })
 
   const branches = result.stdout.split("\n").map(b => b.trim().replace(/^\* /, "")).filter(Boolean)
 
@@ -209,7 +209,7 @@ export async function recoverOrphanedBranches(db: Database, cwd: string, command
     if (!archivedPrefixes.some(prefix => branch.startsWith(prefix))) continue
 
     try {
-        const deleteResult = await command(["git", "branch", "-D", branch], { cwd })
+      const deleteResult = await runCommand(["git", "branch", "-D", branch], { cwd })
       if (deleteResult.exitCode === 0) {
         removed++
         log(`recovery:branch:deleted branch=${branch}`)
