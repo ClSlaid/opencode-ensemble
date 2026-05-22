@@ -210,58 +210,6 @@ function toDashboardServer(server: Server): DashboardServer {
   }
 }
 
-/** Dashboard server handle returned by startDashboard. */
-export interface DashboardServer {
-  stop(force?: boolean): void
-}
-
-function sendJson(res: ServerResponse, data: unknown): void {
-  res.writeHead(200, {
-    "Content-Type": "application/json",
-    "Access-Control-Allow-Origin": "*",
-  })
-  res.end(JSON.stringify(data))
-}
-
-function handleDashboardRequest(db: Database, port: number, req: IncomingMessage, res: ServerResponse): void {
-  const url = new URL(req.url ?? "/", `http://${req.headers.host ?? `localhost:${port}`}`)
-
-  if (url.pathname === "/api/health") {
-    sendJson(res, { ensemble: true, pid: process.pid })
-    return
-  }
-
-  if (url.pathname === "/api/state") {
-    sendJson(res, buildState(db))
-    return
-  }
-
-  if (url.pathname === "/") {
-    res.writeHead(200, { "Content-Type": "text/html" })
-    res.end(DASHBOARD_HTML)
-    return
-  }
-
-  res.writeHead(404, { "Content-Type": "text/plain" })
-  res.end("Not Found")
-}
-
-function toDashboardServer(server: Server): DashboardServer {
-  return {
-    stop(force?: boolean) {
-      server.close()
-      // server.close() only stops accepting new connections — under Node's
-      // node:http, idle keep-alive sockets keep the listener busy until the
-      // keep-alive timeout. closeAllConnections() (Node ≥ 18.2) terminates
-      // them promptly, matching the behaviour Bun.serve().stop(true) had.
-      if (force) {
-        const closeAll = (server as unknown as { closeAllConnections?: () => void }).closeAllConnections
-        if (typeof closeAll === "function") closeAll.call(server)
-      }
-    },
-  }
-}
-
 /**
  * Start the dashboard HTTP server.
  * Serves a JSON API for team state and the dashboard HTML.
